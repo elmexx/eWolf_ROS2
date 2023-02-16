@@ -11,6 +11,30 @@ import matplotlib.pyplot as plt
 from skimage.measure import label
 from skimage.measure import regionprops
 # from skimage.color import label2rgb
+from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import RANSACRegressor
+
+class PolynomialRegression(object):
+    def __init__(self, degree=2, coeffs=None):
+        self.degree = degree
+        self.coeffs = coeffs
+
+    def fit(self, X, y):
+        self.coeffs = np.polyfit(X.ravel(), y, self.degree)
+
+    def get_params(self, deep=False):
+        return {'coeffs': self.coeffs}
+
+    def set_params(self, coeffs=None, random_state=None):
+        self.coeffs = coeffs
+
+    def predict(self, X):
+        poly_eqn = np.poly1d(self.coeffs)
+        y_hat = poly_eqn(X.ravel())
+        return y_hat
+
+    def score(self, X, y):
+        return mean_squared_error(y, self.predict(X))
 
 class DictObjHolder(object):
     def __init__(self, dct):
@@ -301,11 +325,13 @@ def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
         return ret
     
     
-def get_fit_param(warpimage, init_fit_param):
+def get_fit_param(warpimage, init_fit_param, fit_model):
     
     label_image = label(warpimage)
     region_props = regionprops(label_image)
     new_fit = np.array([0.,0.,0.])
+    # fit_model = RANSACRegressor(PolynomialRegression(degree=2), random_state=0)
+
     try:
         maxlabel = (label_image==(1+np.argmax([i.area for i in region_props]))).astype(int)
         
@@ -314,7 +340,12 @@ def get_fit_param(warpimage, init_fit_param):
             nonzero = np.nonzero(maxlabel!=0)
             nonzero_y = nonzero[0]
             nonzero_x = nonzero[1]
-            fit_param = np.polyfit(nonzero_y, nonzero_x, 2) # np.polyfit(nonzero_y, nonzero_x, 3)
+
+            # fit_param = np.polyfit(nonzero_y, nonzero_x, 2) # np.polyfit(nonzero_y, nonzero_x, 3)
+
+            fit_model.fit(np.expand_dims(nonzero_y, axis=1), nonzero_x)
+            fit_param = fit_model.estimator_.coeffs
+
             isGood = isgood(fit_param)
             
             new_y = nonzero[0]/42.3
@@ -328,7 +359,7 @@ def get_fit_param(warpimage, init_fit_param):
         fit_param = init_fit_param
         return init_fit_param, new_fit
 
-def lanefit(binary_image,mtx,CameraPose, OutImageView, OutImageSize):   
+def lanefit(binary_image,mtx,CameraPose, OutImageView, OutImageSize, fit_model):   
     warpimage, unwarp_matrix, birdseyeview = bev_perspective(binary_image.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
     warpimage[warpimage[:,:]!=0]=255
     leftwarpimg = warpimage.copy()
@@ -340,8 +371,8 @@ def lanefit(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
     left_init_param = np.array([-4.10852052e-05, -7.97958759e-02,  1.29887915e+02])
     right_init_param = np.array([-2.79490979e-05,  4.62164141e-02,  2.44594161e+02])
     
-    ego_left_lane, left_new = get_fit_param(leftwarpimg, left_init_param)
-    ego_right_lane, right_new = get_fit_param(rightwarpimg, right_init_param)
+    ego_left_lane, left_new = get_fit_param(leftwarpimg, left_init_param, fit_model)
+    ego_right_lane, right_new = get_fit_param(rightwarpimg, right_init_param, fit_model)
     
     
     

@@ -52,8 +52,9 @@ class YoloDetector(Node):
         model = 'yolov4-416'
         category_num = 80
         letter_box = False
+        model_path = os.path.expanduser('~/ros2_ws/src/yolo_trt_ros2/yolo_trt_ros2/yolo/%s.trt' % model)
 
-        if not os.path.isfile('/home/jetson/ros2_ws/src/yolo_trt_ros2/yolo_trt_ros2/yolo/%s.trt' % model):
+        if not os.path.isfile(model_path):
             raise SystemExit('ERROR: file (yolo/%s.trt) not found!' % model)
 
         self.cls_dict = get_cls_dict(category_num)

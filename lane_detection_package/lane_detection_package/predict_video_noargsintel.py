@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
+from sklearn.linear_model import RANSACRegressor
 
 from unet import UNet
 from utils.data_vis import plot_img_and_mask
@@ -17,7 +18,7 @@ from utils.dataset import BasicDataset
 
 # from utils import parameter
 # from utils import image2bev
-from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane
+from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression
 from utils.lanecluster import lane_mask_coords
 import pickle as pkl
 def predict_img(net,
@@ -125,8 +126,8 @@ imgh = 480
 
 if __name__ == "__main__":
 
-    in_files = '/home/fmon005/Videos/output2.mp4'
-    model_path = './model/Lanenet1402.pth'
+    in_files = '/home/fmon005/Videos/output1.mp4'
+    model_path = './model/Lanenet.pth'
     cap = cv2.VideoCapture(in_files)
     # out_files = get_output_filenames(args)
 
@@ -153,6 +154,8 @@ if __name__ == "__main__":
             })
 
     OutImageSize = np.array([np.nan, np.int_(imgw/2)])  # image H, image W
+
+    fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=10, random_state=0)
 
     net = UNet(n_channels=3, n_classes=1)
 
@@ -227,7 +230,8 @@ if __name__ == "__main__":
             # out_image_new = cv2.addWeighted(cv2.resize(frame,(512,256)),1,add_imgb,1,0.0)
 
             # lane parameter in vehicle coordination
-            lane_fit_params = lanefit(binaryimg_original,mtx,CameraPose, OutImageView, OutImageSize)
+            
+            lane_fit_params = lanefit(binaryimg_original,mtx,CameraPose, OutImageView, OutImageSize, fit_model)
             ego_right_lane = lane_fit_params['ego_right_lane']
             ego_left_lane = lane_fit_params['ego_left_lane']
             # waypoints = lane_fit_params['waypoints']
