@@ -1,6 +1,7 @@
 *.onnx
 *.weights
 *.MP4
+*.avi
 
 **/__pycache__/
 *.pyc

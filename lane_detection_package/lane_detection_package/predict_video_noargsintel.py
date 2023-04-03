@@ -18,9 +18,12 @@ from utils.dataset import BasicDataset
 
 # from utils import parameter
 # from utils import image2bev
-from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression
+from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression, drawsinglelane
 from utils.lanecluster import lane_mask_coords
 import pickle as pkl
+import collections
+
+
 def predict_img(net,
                 full_img,
                 device,
@@ -104,6 +107,12 @@ def get_output_filenames(args):
 def mask_to_image(mask):
     return Image.fromarray((mask * 255).astype(np.uint8))
 
+def moving_average(array, window_data):
+    window_data[:-1] = window_data[1:]
+    window_data[-1] = array
+    moving_avg = np.mean(window_data, axis=0)
+
+    return moving_avg
 
 mtx = np.array([[633.0128, 0., 425.0031],
                 [0., 635.3088, 228.2753],
@@ -116,21 +125,25 @@ yaw = 0
 roll = 0
 height = 1
 
-distAheadOfSensor = 15
+distAheadOfSensor = 30
 spaceToLeftSide = 5    
 spaceToRightSide = 5
 bottomOffset = 1
 
 imgw = 848
 imgh = 480
+window_size = 10
 
 if __name__ == "__main__":
 
-    in_files = '/home/fmon005/Videos/output1.mp4'
-    model_path = './model/Lanenet.pth'
+    in_files = '/home/fmon005/Videos/test_campus.mp4'
+    model_path = './model/CarlaCP_epoch20.pth'
+    # CarlaCP_epoch20.pth
+    # old_CP_epoch14.pth
     cap = cv2.VideoCapture(in_files)
     # out_files = get_output_filenames(args)
-
+    legend_img = cv2.imread('Legend.png')
+    l_h, l_w, l_c = legend_img.shape
 
         #########################################
     # Camera Pose
@@ -155,7 +168,7 @@ if __name__ == "__main__":
 
     OutImageSize = np.array([np.nan, np.int_(imgw/2)])  # image H, image W
 
-    fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=10, random_state=0)
+    fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=100, random_state=0)
 
     net = UNet(n_channels=3, n_classes=1)
 
@@ -172,6 +185,12 @@ if __name__ == "__main__":
     logging.info("Model loaded !")
     
     ii = 1
+
+    fourcc=cv2.VideoWriter_fourcc(*'XVID')
+    videoWriter=cv2.VideoWriter('nolegendnachtrainsplines.avi',fourcc,15,(imgw,imgh))
+
+    left_window_data = np.zeros((window_size,3))
+    right_window_data = np.zeros((window_size,3))
 
     while(cap.isOpened()):
         ret, frame = cap.read()
@@ -236,39 +255,67 @@ if __name__ == "__main__":
             ego_left_lane = lane_fit_params['ego_left_lane']
             # waypoints = lane_fit_params['waypoints']
             #line_img = lane_fit_params['laneimg']
-            print(ego_left_lane)
-            print(ego_right_lane)
-        
-            mask_img = drawlane(binaryimg_original, birdseyeviewimage, unwarp_matrix, ego_right_lane, ego_left_lane)
+            # print(ego_left_lane)
+            # print(ego_right_lane)
+            # print('-------------')
+
+            if ego_left_lane.size > 0:
+                ego_left_lane = moving_average(ego_left_lane, left_window_data)
+                left_window_data = np.vstack((left_window_data[1:], ego_left_lane))
+            if ego_right_lane.size > 0:
+                ego_right_lane = moving_average(ego_right_lane, right_window_data)
+                right_window_data = np.vstack((right_window_data[1:], ego_right_lane))
+
+            # mask_img = drawlane(binaryimg_original, birdseyeviewimage, unwarp_matrix, ego_right_lane, ego_left_lane)
             
-            g_b = np.zeros_like(mask_img).astype(np.uint8)
-            add_img = cv2.merge((mask_img,g_b, g_b))
+            mask_img_right = drawsinglelane(binaryimg_original, birdseyeviewimage, unwarp_matrix, ego_right_lane)
+            mask_img_left = drawsinglelane(binaryimg_original, birdseyeviewimage, unwarp_matrix, ego_left_lane)
+
+            g_b = np.zeros_like(mask_img_right).astype(np.uint8)
+            # add_img_l = cv2.merge((g_b, mask_img_right, mask_img_left))
             
+            mask_right_rgb = np.zeros_like(img).astype(np.uint8)
+            mask_right_rgb[mask_img_right==255,:]=[0,255,255]
+            mask_left_rgb = np.zeros_like(img).astype(np.uint8)
+            mask_left_rgb[mask_img_left==255,:]=[0,255,0]
+            add_img_l = cv2.addWeighted(mask_right_rgb,1.0, mask_left_rgb, 1.0,0)
+            
+            # add_img_l = yellow_img+green_img
+
             frame = cv2.resize(frame,(imgw,imgh))
 
-            out_image = cv2.addWeighted(frame,1,add_img,1,0.0)
-            
-            mittel_lane = (ego_right_lane + ego_left_lane) / 2
-            mittel_mask_img = drawmittellane(binaryimg_original, birdseyeviewimage, unwarp_matrix, mittel_lane)
-            add_img1 = cv2.merge((g_b, g_b,mittel_mask_img))
 
-            out_image = cv2.addWeighted(out_image,1,add_img1,1,0.0)
+
+            # out_image = cv2.addWeighted(frame,1,add_img_l,1,0.0)
+            
+            # mittel_lane = (ego_right_lane + ego_left_lane) / 2
+            # mittel_mask_img = drawmittellane(binaryimg_original, birdseyeviewimage, unwarp_matrix, mittel_lane)
+            # add_img1 = cv2.merge((g_b, g_b,mittel_mask_img))
+
+            # out_image = cv2.addWeighted(out_image,1,add_img1,1,0.0)
             
             #print('waypoints: ', waypoints)
     
             # result = (mask*255).astype(np.uint8)
             
             # result_resize = cv2.resize(result,(512,256))
-            # g_r = np.zeros_like(result_resize).astype(np.uint8)
+            g_r = np.zeros_like(binaryimg_original).astype(np.uint8)
             
-            # add_img = cv2.merge((result_resize,g_r,g_r))
+            add_img = cv2.merge((g_r, g_r, binaryimg_original))
             # img_resize = cv2.resize(img,(512,256))
             
-            # out_image = cv2.addWeighted(img_resize,1,add_img,1,0.0)
-            # out_img = cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)
+            overlayimg = cv2.addWeighted(img,1,add_img,1,0.0)
+            # out_img = cv2.cvtColor(overlayimg, cv2.COLOR_RGB2BGR)
+            out_image = cv2.addWeighted(overlayimg,1.0,add_img_l,1.0,0.0)
             
-            # cv2.namedWindow('img',cv2.WINDOW_AUTOSIZE)
-            # cv2.imshow('img', img_resize)
+            # out_image[0:l_h, imgw-l_w:imgw] = legend_img
+            
+            if ii>73:
+                videoWriter.write(out_image)
+
+            ii=ii+1
+            cv2.namedWindow('out_img',cv2.WINDOW_AUTOSIZE)
+            cv2.imshow('out_img', overlayimg)
             cv2.namedWindow('img',cv2.WINDOW_AUTOSIZE)
             cv2.imshow('img', warpimage)  
             cv2.namedWindow('birdseyeviewimage',cv2.WINDOW_AUTOSIZE)
@@ -281,3 +328,4 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     cv2.destroyAllWindows()
+    videoWriter.release()

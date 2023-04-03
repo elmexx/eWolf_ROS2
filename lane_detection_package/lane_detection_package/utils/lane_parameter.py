@@ -329,7 +329,7 @@ def get_fit_param(warpimage, init_fit_param, fit_model):
     
     label_image = label(warpimage)
     region_props = regionprops(label_image)
-    new_fit = np.array([0.,0.,0.])
+    new_fit = np.array([])
     # fit_model = RANSACRegressor(PolynomialRegression(degree=2), random_state=0)
 
     try:
@@ -368,13 +368,12 @@ def lanefit(binary_image,mtx,CameraPose, OutImageView, OutImageSize, fit_model):
     rightwarpimg = warpimage.copy()
     rightwarpimg[:,0:int(OutImageSize[1]/2)]=0
     
-    left_init_param = np.array([-4.10852052e-05, -7.97958759e-02,  1.29887915e+02])
-    right_init_param = np.array([-2.79490979e-05,  4.62164141e-02,  2.44594161e+02])
-    
+    # left_init_param = np.array([-4.10852052e-05, -7.97958759e-02,  1.29887915e+02])
+    # right_init_param = np.array([-2.79490979e-05,  4.62164141e-02,  2.44594161e+02])
+    left_init_param = np.array([])
+    right_init_param = np.array([])
     ego_left_lane, left_new = get_fit_param(leftwarpimg, left_init_param, fit_model)
     ego_right_lane, right_new = get_fit_param(rightwarpimg, right_init_param, fit_model)
-    
-    
     
     ret = {
         'ego_right_lane': ego_right_lane,
@@ -412,6 +411,37 @@ def drawlane(binary_image, warpimage, unwarp_matrix, ego_right_lane, ego_left_la
         lane_image = cv2.circle(lane_image,points,3,255,-1)
     return lane_image
 
+def drawsinglelane(binary_image, warpimage, unwarp_matrix, ego_lane):   
+    line_img = np.zeros_like(warpimage).astype(np.uint8)
+    plot_y = np.linspace(0, warpimage.shape[0]-1, warpimage.shape[0])
+    fit_param=ego_lane
+    warp_xs = []
+    warp_ys = []
+
+    if not fit_param.any():
+        lane_image = np.zeros_like(binary_image).astype(np.uint8)
+        return lane_image
+    else:    
+        fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y ** 1 + fit_param[2]    
+        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
+        warp_y = np.int_(plot_y)[idx_fitx]
+        warp_x = np.int_(fit_x)[idx_fitx]
+        warp_ys.extend(warp_y)
+        warp_xs.extend(warp_x)
+        line_pts = (warp_ys, warp_xs)   
+        line_img[line_pts] = 255
+        mask_img = cv2.warpPerspective(line_img, unwarp_matrix, (binary_image.shape[1], binary_image.shape[0]))
+        # src_x = np.array(mask_img.nonzero()[1])
+        # src_y = np.array(mask_img.nonzero()[0])
+        # src_xy = np.transpose(np.vstack((src_x,src_y)))
+        src_xy = np.argwhere(mask_img != 0)
+        src_xy = np.flip(src_xy[:,0:2],1)
+        points_xy = [tuple(x) for x in src_xy]
+        lane_image = np.zeros_like(binary_image).astype(np.uint8)
+        for points in points_xy:
+            lane_image = cv2.circle(lane_image,points,1,255,-1)
+        return lane_image
+
 def drawmittellane(binary_image, warpimage, unwarp_matrix, mittel_lane):   
     line_img = np.zeros_like(warpimage).astype(np.uint8)
     plot_y = np.linspace(0, warpimage.shape[0]-1, warpimage.shape[0])
@@ -431,7 +461,7 @@ def drawmittellane(binary_image, warpimage, unwarp_matrix, mittel_lane):
     points_xy = [tuple(x) for x in src_xy]
     lane_image = np.zeros_like(binary_image).astype(np.uint8)
     for points in points_xy:
-        lane_image = cv2.circle(lane_image,points,3,255,-1)
+        lane_image = cv2.circle(lane_image,points,1,255,-1)
     return lane_image
     
 def imageadd(img1,img2):
