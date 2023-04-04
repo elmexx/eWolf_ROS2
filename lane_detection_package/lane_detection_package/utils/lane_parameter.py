@@ -149,7 +149,11 @@ class BirdsEyeView:
     def bevimagetovehicle(self, bevpoint):
         # image pixel point (image coordination) to real world point position (vehicle coordination)
         
-        worldpoint = np.hstack([bevpoint, 1])
+        if bevpoint.ndim == 1:
+            worldpoint = np.hstack([bevpoint, 1])
+        else:
+            worldpoint = np.ones(bevpoint.shape[0],bevpoint.shape[1]+1)
+            worldpoint[:,:-1] = bevpoint
         
         worldpoint_sc = worldpoint / np.array([self.scalex, self.scaley, 1])
         vehicle_Matrix = np.array([[1, 0, -self.worldHW[1]/2],
@@ -221,109 +225,7 @@ def isgood(fit_param):
     isGood = abs(a) < 0.003 and abs(b) < 0.8
     return isGood
 
-def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):   
-    warpimage, unwarp_matrix, birdseyeview = bev_perspective(binary_image.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
-    warpimage[warpimage[:,:]!=0]=255
-    lane_label = lanelabel(warpimage, min_area_threshold=300)
-    [binary_img_H, binary_img_W] = binary_image.shape
-    
-    fit_params = []
 
-    init_fit_params = np.array([[-8.59772640e-07,  2.72346164e-02,  2.04014669e+02],
-                     [ 6.64430504e-06, -1.32049055e-02,  6.38566362e+02]])
-    
-    way_plot_y = np.linspace(0, warpimage.shape[0]-1, OutImageView.distAheadOfSensor)
-    line_img = np.zeros_like(warpimage).astype(np.uint8)
-    if lane_label is None:
-        init_mittel_lane = (init_fit_params[1] + init_fit_params[0]) / 2
-        fit_x = init_mittel_lane[0] * way_plot_y ** 2 + init_mittel_lane[1] * way_plot_y ** 1 + init_mittel_lane[2]
-        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
-        warp_y = np.int_(way_plot_y)[idx_fitx]
-        warp_x = np.int_(fit_x)[idx_fitx]
-        way_pts = np.vstack((warp_x,warp_y))
-        worldpoints = []
-        for i in range(way_pts.shape[1]):   
-            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
-            worldpoints.append(worldpoint)
-        ret = {
-                'fit_params': init_fit_params,
-                'ego_right_lane': init_fit_params[1],
-                'ego_left_lane': init_fit_params[0],
-                'mittel_lane': init_mittel_lane,
-                'waypoints': worldpoints,
-                'laneimg': line_img,
-                }
-        return ret
-    
-    try: 
-        #line_img = np.zeros_like(warpimage).astype(np.uint8)
-        for i in range(len(lane_label)):
-            nonzero_y = lane_label[i].coords[:,0]
-            nonzero_x = lane_label[i].coords[:,1]        
-            fit_param = np.polyfit(nonzero_y, nonzero_x, 2) # np.polyfit(nonzero_y, nonzero_x, 3)
-            isGood = isgood(fit_param)
-            if isGood == True:
-                fit_params.append(fit_param)
-                
-                plot_y = np.linspace(0, warpimage.shape[0]-1, warpimage.shape[0])
-                fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y ** 1 + fit_param[2]    
-                idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
-                warp_y = np.int_(plot_y)[idx_fitx]
-                warp_x = np.int_(fit_x)[idx_fitx]
-                warp_ys.extend(warp_y)
-                warp_xs.extend(warp_x)
-            
-        line_pts = (warp_ys, warp_xs)   
-        line_img[line_pts] = 255
-        # mask_img = cv2.warpPerspective(line_img, unwarp_matrix, (binary_image.shape[1], binary_image.shape[0]))
-        # src_x = np.array(mask_img.nonzero()[1])
-        # src_y = np.array(mask_img.nonzero()[0])
-        # src_xy = np.transpose(np.vstack((src_x,src_y)))
-        # points_xy = [tuple(x) for x in src_xy]
-        # lane_image = np.zeros_like(binary_image).astype(np.uint8)
-        # for points in points_xy:
-        #     lane_image = cv2.circle(lane_image,points,3,255,-1)
-        ego_right_lane,ego_left_lane = left_right_lane(fit_params, warpimage)
-        mittel_lane = (ego_right_lane + ego_left_lane) / 2
-        fit_x = mittel_lane[0] * way_plot_y ** 2 + mittel_lane[1] * way_plot_y ** 1 + mittel_lane[2]
-        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
-        warp_y = np.int_(way_plot_y)[idx_fitx]
-        warp_x = np.int_(fit_x)[idx_fitx]
-        way_pts = np.vstack((warp_x,warp_y))
-        worldpoints = []
-        for i in range(way_pts.shape[1]):   
-            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
-            worldpoints.append(worldpoint)
-        ret = {
-                'fit_params': fit_params,
-                'ego_right_lane': ego_right_lane,
-                'ego_left_lane': ego_left_lane,
-                'mittel_lane': mittel_lane,
-                'waypoints': worldpoints,
-                'laneimg': line_img,
-                }
-        return ret
-    except:
-        init_mittel_lane = (init_fit_params[1] + init_fit_params[0]) / 2
-        fit_x = init_mittel_lane[0] * way_plot_y ** 2 + init_mittel_lane[1] * way_plot_y ** 1 + init_mittel_lane[2]
-        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
-        warp_y = np.int_(way_plot_y)[idx_fitx]
-        warp_x = np.int_(fit_x)[idx_fitx]
-        way_pts = np.vstack((warp_x,warp_y))
-        worldpoints = []
-        for i in range(way_pts.shape[1]):   
-            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
-            worldpoints.append(worldpoint)
-        ret = {
-                'fit_params': init_fit_params,
-                'ego_right_lane': init_fit_params[1],
-                'ego_left_lane': init_fit_params[0],
-                'mittel_lane': init_mittel_lane,
-                'waypoints': worldpoints,
-                'laneimg': line_img,
-                }
-        return ret
-    
     
 def get_fit_param(warpimage, init_fit_param, fit_model):
     
@@ -468,7 +370,109 @@ def imageadd(img1,img2):
     addimage = cv2.addWeighted(img1,1,img2,1,0)
     return addimage
 
+def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):   
+    warpimage, unwarp_matrix, birdseyeview = bev_perspective(binary_image.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
+    warpimage[warpimage[:,:]!=0]=255
+    lane_label = lanelabel(warpimage, min_area_threshold=300)
+    [binary_img_H, binary_img_W] = binary_image.shape
+    
+    fit_params = []
 
+    init_fit_params = np.array([[-8.59772640e-07,  2.72346164e-02,  2.04014669e+02],
+                     [ 6.64430504e-06, -1.32049055e-02,  6.38566362e+02]])
+    
+    way_plot_y = np.linspace(0, warpimage.shape[0]-1, OutImageView.distAheadOfSensor)
+    line_img = np.zeros_like(warpimage).astype(np.uint8)
+    if lane_label is None:
+        init_mittel_lane = (init_fit_params[1] + init_fit_params[0]) / 2
+        fit_x = init_mittel_lane[0] * way_plot_y ** 2 + init_mittel_lane[1] * way_plot_y ** 1 + init_mittel_lane[2]
+        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
+        warp_y = np.int_(way_plot_y)[idx_fitx]
+        warp_x = np.int_(fit_x)[idx_fitx]
+        way_pts = np.vstack((warp_x,warp_y))
+        worldpoints = []
+        for i in range(way_pts.shape[1]):   
+            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
+            worldpoints.append(worldpoint)
+        ret = {
+                'fit_params': init_fit_params,
+                'ego_right_lane': init_fit_params[1],
+                'ego_left_lane': init_fit_params[0],
+                'mittel_lane': init_mittel_lane,
+                'waypoints': worldpoints,
+                'laneimg': line_img,
+                }
+        return ret
+    
+    try: 
+        #line_img = np.zeros_like(warpimage).astype(np.uint8)
+        for i in range(len(lane_label)):
+            nonzero_y = lane_label[i].coords[:,0]
+            nonzero_x = lane_label[i].coords[:,1]        
+            fit_param = np.polyfit(nonzero_y, nonzero_x, 2) # np.polyfit(nonzero_y, nonzero_x, 3)
+            isGood = isgood(fit_param)
+            if isGood == True:
+                fit_params.append(fit_param)
+                
+                plot_y = np.linspace(0, warpimage.shape[0]-1, warpimage.shape[0])
+                fit_x = fit_param[0] * plot_y ** 2 + fit_param[1] * plot_y ** 1 + fit_param[2]    
+                idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
+                warp_y = np.int_(plot_y)[idx_fitx]
+                warp_x = np.int_(fit_x)[idx_fitx]
+                warp_ys.extend(warp_y)
+                warp_xs.extend(warp_x)
+            
+        line_pts = (warp_ys, warp_xs)   
+        line_img[line_pts] = 255
+        # mask_img = cv2.warpPerspective(line_img, unwarp_matrix, (binary_image.shape[1], binary_image.shape[0]))
+        # src_x = np.array(mask_img.nonzero()[1])
+        # src_y = np.array(mask_img.nonzero()[0])
+        # src_xy = np.transpose(np.vstack((src_x,src_y)))
+        # points_xy = [tuple(x) for x in src_xy]
+        # lane_image = np.zeros_like(binary_image).astype(np.uint8)
+        # for points in points_xy:
+        #     lane_image = cv2.circle(lane_image,points,3,255,-1)
+        ego_right_lane,ego_left_lane = left_right_lane(fit_params, warpimage)
+        mittel_lane = (ego_right_lane + ego_left_lane) / 2
+        fit_x = mittel_lane[0] * way_plot_y ** 2 + mittel_lane[1] * way_plot_y ** 1 + mittel_lane[2]
+        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
+        warp_y = np.int_(way_plot_y)[idx_fitx]
+        warp_x = np.int_(fit_x)[idx_fitx]
+        way_pts = np.vstack((warp_x,warp_y))
+        worldpoints = []
+        for i in range(way_pts.shape[1]):   
+            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
+            worldpoints.append(worldpoint)
+        ret = {
+                'fit_params': fit_params,
+                'ego_right_lane': ego_right_lane,
+                'ego_left_lane': ego_left_lane,
+                'mittel_lane': mittel_lane,
+                'waypoints': worldpoints,
+                'laneimg': line_img,
+                }
+        return ret
+    except:
+        init_mittel_lane = (init_fit_params[1] + init_fit_params[0]) / 2
+        fit_x = init_mittel_lane[0] * way_plot_y ** 2 + init_mittel_lane[1] * way_plot_y ** 1 + init_mittel_lane[2]
+        idx_fitx = (np.int_(fit_x)>=0) & (np.int_(fit_x)<=warpimage.shape[1]-1)
+        warp_y = np.int_(way_plot_y)[idx_fitx]
+        warp_x = np.int_(fit_x)[idx_fitx]
+        way_pts = np.vstack((warp_x,warp_y))
+        worldpoints = []
+        for i in range(way_pts.shape[1]):   
+            worldpoint = birdseyeview.bevimagetovehicle(way_pts[:,i])
+            worldpoints.append(worldpoint)
+        ret = {
+                'fit_params': init_fit_params,
+                'ego_right_lane': init_fit_params[1],
+                'ego_left_lane': init_fit_params[0],
+                'mittel_lane': init_mittel_lane,
+                'waypoints': worldpoints,
+                'laneimg': line_img,
+                }
+        return ret
+    
 """
 lane_label = lanelabel(binary_image, min_area_threshold=300)
 line_img = np.zeros_like(binary_image).astype(np.uint8)

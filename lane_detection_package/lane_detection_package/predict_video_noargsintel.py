@@ -136,8 +136,8 @@ window_size = 10
 
 if __name__ == "__main__":
 
-    in_files = '/home/fmon005/Videos/test_campus.mp4'
-    model_path = './model/CarlaCP_epoch20.pth'
+    in_files = '/home/fmon005/Videos/test_campus1.mp4'
+    model_path = './model/Lanenet0304.pth'
     # CarlaCP_epoch20.pth
     # old_CP_epoch14.pth
     cap = cv2.VideoCapture(in_files)
