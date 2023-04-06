@@ -18,7 +18,7 @@ from utils.dataset import BasicDataset
 
 # from utils import parameter
 # from utils import image2bev
-from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression, drawsinglelane
+from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression, drawsinglelane, get_fit_param, insertLaneBoundary
 from utils.lanecluster import lane_mask_coords
 import pickle as pkl
 import collections
@@ -168,8 +168,8 @@ if __name__ == "__main__":
 
     OutImageSize = np.array([np.nan, np.int_(imgw/2)])  # image H, image W
 
-    fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=100, random_state=0)
-
+    left_fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=10)
+    right_fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=10)
     net = UNet(n_channels=3, n_classes=1)
 
     logging.info("Loading model {}".format(model_path))
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     ii = 1
 
     fourcc=cv2.VideoWriter_fourcc(*'XVID')
-    videoWriter=cv2.VideoWriter('nolegendnachtrainsplines.avi',fourcc,15,(imgw,imgh))
+    # videoWriter=cv2.VideoWriter('nolegendnachtrainsplines.avi',fourcc,15,(imgw,imgh))
 
     left_window_data = np.zeros((window_size,3))
     right_window_data = np.zeros((window_size,3))
@@ -211,10 +211,26 @@ if __name__ == "__main__":
             binaryimg_256 = cv2.resize(binaryimg,(512,256))
             
             # Bird's Eye View Image
-            birdseyeviewimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
+            # birdseyeviewimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
             
             warpimage, unwarp_matrix, birdseyeview = bev_perspective(binaryimg_original.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
             
+            imageX, imageY = np.where(warpimage)
+            xyBoundaryPoints = birdseyeview.bevimagetovehicle(np.column_stack((imageY,imageX)))
+
+            leftlane = xyBoundaryPoints[xyBoundaryPoints[:,1]>0]
+            rightlane = xyBoundaryPoints[xyBoundaryPoints[:,1]<=0]
+
+            left_init_param = np.array([])
+            right_init_param = np.array([])
+            leftparam = get_fit_param(leftlane, left_init_param, left_fit_model)
+            rightparam = get_fit_param(rightlane, right_init_param, right_fit_model)
+
+            left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview)
+            lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview)
+
+
+
             # lanemask, lane_coords = lane_mask_coords(warpimage)
             # fit_params = []
             # for i in range(len(lane_coords)):
@@ -249,7 +265,7 @@ if __name__ == "__main__":
             # out_image_new = cv2.addWeighted(cv2.resize(frame,(512,256)),1,add_imgb,1,0.0)
 
             # lane parameter in vehicle coordination
-            
+            """
             lane_fit_params = lanefit(binaryimg_original,mtx,CameraPose, OutImageView, OutImageSize, fit_model)
             ego_right_lane = lane_fit_params['ego_right_lane']
             ego_left_lane = lane_fit_params['ego_left_lane']
@@ -322,10 +338,11 @@ if __name__ == "__main__":
             cv2.imshow('birdseyeviewimage', birdseyeviewimage)          
             cv2.namedWindow('result',cv2.WINDOW_AUTOSIZE)
             cv2.imshow('result', out_image)
-
-
+            """
+            cv2.namedWindow('result',cv2.WINDOW_AUTOSIZE)
+            cv2.imshow('result', lane_img)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     cv2.destroyAllWindows()
-    videoWriter.release()
+    # videoWriter.release()

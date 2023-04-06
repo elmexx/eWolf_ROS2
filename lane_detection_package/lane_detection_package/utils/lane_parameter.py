@@ -80,12 +80,12 @@ class BirdsEyeView:
         Roll = CameraPose.Roll
         Height = CameraPose.Height
         
-        distAheadOfSensor = OutImgView.distAheadOfSensor
+        self.distAheadOfSensor = OutImgView.distAheadOfSensor
         spaceToLeftSide = OutImgView.spaceToLeftSide 
         spaceToRightSide = OutImgView.spaceToRightSide
         bottomOffset = OutImgView.bottomOffset
         
-        outView = np.array([bottomOffset,distAheadOfSensor,-spaceToLeftSide,spaceToRightSide])
+        outView = np.array([bottomOffset,self.distAheadOfSensor,-spaceToLeftSide,spaceToRightSide])
         reqImgHW = OutImgSize.copy()
         self.worldHW  = np.abs([outView[1]-outView[0], outView[3]-outView[2]])
         
@@ -138,7 +138,7 @@ class BirdsEyeView:
         worldpoint /= worldpoint[2]
         
         worldpoint_sc = worldpoint / np.array([self.scalex, self.scaley, 1])
-        vehicle_Matrix = np.array([[0, -1, self.worldHW[0]],
+        vehicle_Matrix = np.array([[0, -1, self.distAheadOfSensor],
                                    [-1, 0, self.worldHW[1]/2],
                                    [0, 0, 1]])
         worldpoint_vc = np.dot(vehicle_Matrix, worldpoint_sc)
@@ -149,18 +149,23 @@ class BirdsEyeView:
     def bevimagetovehicle(self, bevpoint):
         # image pixel point (image coordination) to real world point position (vehicle coordination)
         
-        if bevpoint.ndim == 1:
-            worldpoint = np.hstack([bevpoint, 1])
-        else:
-            worldpoint = np.ones(bevpoint.shape[0],bevpoint.shape[1]+1)
-            worldpoint[:,:-1] = bevpoint
+        #if bevpoint.ndim == 1:
+        #    worldpoint = np.hstack([bevpoint, 1])
+        #else:
+        worldpoint = np.ones((bevpoint.shape[0],bevpoint.shape[1]+1))
+        worldpoint[:,:-1] = bevpoint
         
         worldpoint_sc = worldpoint / np.array([self.scalex, self.scaley, 1])
-        vehicle_Matrix = np.array([[1, 0, -self.worldHW[1]/2],
-                                    [0, 1, 0],
-                                    [0, 0, 1]])
-        worldpoint_vc = np.dot(vehicle_Matrix, worldpoint_sc)
-        point_worldcoor = worldpoint_vc[0:2]
+        # vehicle_Matrix = np.array([[1, 0, -self.worldHW[1]/2],
+        #                             [0, 1, 0],
+        #                             [0, 0, 1]])
+        vehicle_Matrix = np.array([[0, -1, self.distAheadOfSensor],
+                                   [-1, 0, self.worldHW[1]/2],
+                                   [0, 0, 1]])
+        # worldpoint_vc = np.dot(vehicle_Matrix, worldpoint_sc)
+        worldpoint_vc = np.dot(worldpoint_sc, vehicle_Matrix.T)
+        point_worldcoor = worldpoint_vc[:,0:2]
+        # point_worldcoor[1] = self.distAheadOfSensor - point_worldcoor[1]
         return point_worldcoor
     
     def vehicletoimage(self, worldpoint_vc):
@@ -225,9 +230,29 @@ def isgood(fit_param):
     isGood = abs(a) < 0.003 and abs(b) < 0.8
     return isGood
 
+def get_fit_param(wordpoint_vc, init_fit_param, fit_model):
+    # new_fit = np.array([])
+    try:
+        if wordpoint_vc.size == 0:
+            fit_param = init_fit_param
+            return init_fit_param
+        else: 
+            nonzero_x = wordpoint_vc[:,0]
+            nonzero_y = wordpoint_vc[:,1]
+            fit_model.fit(np.expand_dims(nonzero_x, axis=1), nonzero_y)
+            fit_param = fit_model.estimator_.coeffs
+
+            isGood = isgood(fit_param)
+            if isGood == True:
+                return fit_param
+            else:
+                return init_fit_param
+    except:
+        fit_param = init_fit_param
+        return init_fit_param
 
     
-def get_fit_param(warpimage, init_fit_param, fit_model):
+def get_fit_param_bak(warpimage, init_fit_param, fit_model):
     
     label_image = label(warpimage)
     region_props = regionprops(label_image)
@@ -472,7 +497,46 @@ def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
                 'laneimg': line_img,
                 }
         return ret
+
+def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview):
+    line_img = np.zeros_like(warpimage).astype(np.uint8)
+    fit_param=lane_param
+    xPoints = np.linspace(OutImageView.bottomOffset, OutImageView.distAheadOfSensor,100)[:, np.newaxis]
     
+    worldHW = np.array([OutImageView.distAheadOfSensor, OutImageView.spaceToRightSide +OutImageView.spaceToLeftSide ])
+
+    if not fit_param.any():
+        # lane_image = np.zeros_like(img).astype(np.uint8)
+        return img
+    else:
+        fit_x = fit_param[0] * xPoints ** 2 + fit_param[1] * xPoints ** 1 + fit_param[2]    
+        idx_fitx = (fit_x>=-OutImageView.spaceToRightSide) & (fit_x<=OutImageView.spaceToLeftSide)
+        
+        X = xPoints[idx_fitx]
+        y = fit_x[idx_fitx]
+
+        worldpoints = np.ones((X.shape[0],3))
+        worldpoints[:,0] = X
+        worldpoints[:,1] = y
+
+        T_matrix = np.array([[0, -1, worldHW[1]/2],
+                            [-1, 0, worldHW[0]],
+                            [0, 0, 1]])
+        bevpoints = np.dot(worldpoints, T_matrix.T)
+        imgpoints = np.int_(bevpoints[:,0:2] * np.array([birdseyeview.scalex, birdseyeview.scaley]))
+        line_pts = (imgpoints[:,1], imgpoints[:,0])   
+        line_img[line_pts] = 255
+        mask_img = cv2.warpPerspective(line_img, birdseyeview.unwarp_matrix, (img.shape[1], img.shape[0]))
+        
+        src_xy = np.argwhere(mask_img != 0)
+        src_xy = np.flip(src_xy[:,0:2],1)
+        points_xy = [tuple(x) for x in src_xy]
+        # lane_image = np.zeros_like(img).astype(np.uint8)
+        lane_image = np.zeros((img.shape[0],img.shape[1])).astype(np.uint8)
+        for points in points_xy:
+            lane_image = cv2.circle(img,points,1,(0,0,255),-1)
+        return lane_image  
+
 """
 lane_label = lanelabel(binary_image, min_area_threshold=300)
 line_img = np.zeros_like(binary_image).astype(np.uint8)
