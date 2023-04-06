@@ -333,7 +333,7 @@ if __name__ == "__main__":
                 break
             #time.sleep(1)
             ii = ii+1
-            if ii%10000==0:
+            if ii%10==0:
                 now = datetime.now()
                 f_n = now.strftime("%Y%m%d%H%M%S%f")
                 user_input = messagebox.askyesnocancel("lane detection","Do you want to save the image?")

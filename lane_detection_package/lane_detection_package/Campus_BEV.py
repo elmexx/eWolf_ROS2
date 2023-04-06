@@ -18,10 +18,11 @@ from utils.dataset import BasicDataset
 
 # from utils import parameter
 # from utils import image2bev
-from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression, drawsinglelane
+from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawlane, drawmittellane, PolynomialRegression, drawsinglelane, get_fit_param, insertLaneBoundary
 from utils.lanecluster import lane_mask_coords
 import pickle as pkl
 import collections
+import matplotlib.pyplot as plt
 
 
 def predict_img(net,
@@ -121,7 +122,7 @@ mtx = np.array([[633.0128, 0., 425.0031],
 dist = np.array([0.1020, -0.1315, 0, 0, 0])
 
 pitch = 3
-yaw = 0
+yaw = 3
 roll = 0
 height = 1.6
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     # cap = cv2.VideoCapture(in_files)
     
     model_path = './model/Lanenet0304.pth'
-    img = cv2.imread('Campus.png')
+    img = cv2.imread('Campus1.png')
 
     # Camera Pose
     CameraPose = DictObjHolder({
@@ -160,7 +161,9 @@ if __name__ == "__main__":
 
     OutImageSize = np.array([np.nan, np.int_(imgw/2)])  # image H, image W
 
-    fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=100, random_state=0)
+
+    left_fit_model = RANSACRegressor(PolynomialRegression(degree=2),  random_state=0) #residual_threshold=100,
+    right_fit_model = RANSACRegressor(PolynomialRegression(degree=2),  random_state=0) #residual_threshold=100,
 
     net = UNet(n_channels=3, n_classes=1)
 
@@ -177,12 +180,85 @@ if __name__ == "__main__":
     
     ii = 1
 
-    fourcc=cv2.VideoWriter_fourcc(*'XVID')
-    videoWriter=cv2.VideoWriter('nolegendnachtrainsplines.avi',fourcc,15,(imgw,imgh))
+    # fourcc=cv2.VideoWriter_fourcc(*'XVID')
+    # videoWriter=cv2.VideoWriter('nolegendnachtrainsplines.avi',fourcc,15,(imgw,imgh))
 
     left_window_data = np.zeros((window_size,3))
     right_window_data = np.zeros((window_size,3))
 
+    img_pil = Image.fromarray(img)
+    mask = predict_img(net=net,
+            full_img=img_pil,
+            scale_factor=1,
+            out_threshold=0.2,
+            device=device)
+    # result = mask_to_image(mask)
+        # plot_img_and_mask(img, mask)
+    binaryimg = (mask*255).astype(np.uint8)
+    binaryimg_original = cv2.resize(binaryimg, (imgw, imgh))
+    binaryimg_256 = cv2.resize(binaryimg,(512,256))
+    
+    # Bird's Eye View Image
+    # birdseyeviewimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
+    
+    warpimage, unwarp_matrix, birdseyeview = bev_perspective(binaryimg_original.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
+    
+    imageX, imageY = np.where(warpimage)
+    xyBoundaryPoints = birdseyeview.bevimagetovehicle(np.column_stack((imageY,imageX)))
+
+    leftlane = xyBoundaryPoints[xyBoundaryPoints[:,1]>0]
+    rightlane = xyBoundaryPoints[xyBoundaryPoints[:,1]<=0]
+
+    left_init_param = np.array([])
+    right_init_param = np.array([])
+    leftparam = get_fit_param(leftlane, left_init_param, left_fit_model)
+    rightparam = get_fit_param(rightlane, right_init_param, right_fit_model)
+
+    xPoints = np.arange(bottomOffset, distAheadOfSensor)[:, np.newaxis]
+
+    left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview)
+    lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview)
+    plt.figure()
+    plt.imshow(lane_img)
+
+    X = leftlane[:,0]
+    y = leftlane[:,1]
+    line_X = np.arange(X.min(), X.max())[:, np.newaxis]
+    line_y = left_fit_model.predict(line_X)
+    inlier_mask = left_fit_model.inlier_mask_
+    outlier_mask = np.logical_not(inlier_mask)
+    lw = 2
+    plt.figure()
+    plt.scatter(
+        X[inlier_mask], y[inlier_mask], color="yellowgreen", marker=".", label="Inliers"
+    )
+    plt.scatter(
+        X[outlier_mask], y[outlier_mask], color="gold", marker=".", label="Outliers"
+    )
+    plt.plot(line_X, line_y, color="navy", linewidth=lw, label="Linear regressor")
+
+
+    XX = rightlane[:,0]
+    yy = rightlane[:,1]
+    line_XX = np.arange(XX.min(), XX.max())[:, np.newaxis]
+    line_yy = right_fit_model.predict(line_XX)
+    inlier_maskx = right_fit_model.inlier_mask_
+    outlier_maskx = np.logical_not(inlier_maskx)
+    lw = 2
+    
+    plt.scatter(
+        XX[inlier_maskx], yy[inlier_maskx], color="yellowgreen", marker=".", label="Inliers"
+    )
+    plt.scatter(
+        XX[outlier_maskx], yy[outlier_maskx], color="gold", marker=".", label="Outliers"
+    )
+    plt.plot(line_XX, line_yy, color="navy", linewidth=lw, label="Linear regressor")
+    
+
+
+
+
+'''
     while(cap.isOpened()):
         ret, frame = cap.read()
         if ret==True:
@@ -205,7 +281,13 @@ if __name__ == "__main__":
             birdseyeviewimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
             
             warpimage, unwarp_matrix, birdseyeview = bev_perspective(binaryimg_original.astype(np.uint8), mtx, CameraPose, OutImageView, OutImageSize)
-            
+            imageX, imageY = np.where(warpimage)
+            xyBoundaryPoints = birdseyeview.bevimagetovehicle(np.column_stack((imageY,imageX)))
+
+            leftlane = xyBoundaryPoints[xyBoundaryPoints[:,1]>0]
+            rightlane = xyBoundaryPoints[xyBoundaryPoints[:,1]<=0]
+
+
             # lane parameter in vehicle coordination
             
             lane_fit_params = lanefit(binaryimg_original,mtx,CameraPose, OutImageView, OutImageSize, fit_model)
@@ -257,3 +339,4 @@ if __name__ == "__main__":
                 break
     cv2.destroyAllWindows()
     videoWriter.release()
+'''
