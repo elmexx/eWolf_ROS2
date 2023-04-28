@@ -133,39 +133,34 @@ class BirdsEyeView:
 
     def imagetovehicle(self, imgpoint):
         # image pixel point (image coordination) to real world point position (vehicle coordination)
-        
-        worldpoint = np.dot(self.BirdsEyeViewTransform, np.hstack([imgpoint, 1]))
-        worldpoint /= worldpoint[2]
+        imgpoint_n = np.ones((imgpoint.shape[0],imgpoint.shape[1]+1))
+        imgpoint_n[:,:-1] = imgpoint
+        worldpoint = np.dot(imgpoint_n, self.BirdsEyeViewTransform.T) #np.hstack([imgpoint, 1]))
+        last_col = worldpoint[:,-1]
+        worldpoint /= last_col[:,None]
         
         worldpoint_sc = worldpoint / np.array([self.scalex, self.scaley, 1])
         vehicle_Matrix = np.array([[0, -1, self.distAheadOfSensor],
                                    [-1, 0, self.worldHW[1]/2],
                                    [0, 0, 1]])
-        worldpoint_vc = np.dot(vehicle_Matrix, worldpoint_sc)
-        point_worldcoor = worldpoint_vc[0:2]
-        point_bevcoor = np.int_(np.round(worldpoint[0:2]))
+        worldpoint_vc = np.dot(worldpoint_sc, vehicle_Matrix.T)
+        point_worldcoor = worldpoint_vc[:,0:2]
+        point_bevcoor = np.int_(np.round(worldpoint[:,0:2]))
         return point_worldcoor, point_bevcoor
     
     def bevimagetovehicle(self, bevpoint):
-        # image pixel point (image coordination) to real world point position (vehicle coordination)
-        
-        #if bevpoint.ndim == 1:
-        #    worldpoint = np.hstack([bevpoint, 1])
-        #else:
+
         worldpoint = np.ones((bevpoint.shape[0],bevpoint.shape[1]+1))
         worldpoint[:,:-1] = bevpoint
         
         worldpoint_sc = worldpoint / np.array([self.scalex, self.scaley, 1])
-        # vehicle_Matrix = np.array([[1, 0, -self.worldHW[1]/2],
-        #                             [0, 1, 0],
-        #                             [0, 0, 1]])
+
         vehicle_Matrix = np.array([[0, -1, self.distAheadOfSensor],
                                    [-1, 0, self.worldHW[1]/2],
                                    [0, 0, 1]])
-        # worldpoint_vc = np.dot(vehicle_Matrix, worldpoint_sc)
+        
         worldpoint_vc = np.dot(worldpoint_sc, vehicle_Matrix.T)
         point_worldcoor = worldpoint_vc[:,0:2]
-        # point_worldcoor[1] = self.distAheadOfSensor - point_worldcoor[1]
         return point_worldcoor
     
     def vehicletoimage(self, worldpoint_vc):

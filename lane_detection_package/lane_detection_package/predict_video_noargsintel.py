@@ -22,7 +22,9 @@ from utils.lane_parameter import DictObjHolder, bev_perspective, lanefit, drawla
 from utils.lanecluster import lane_mask_coords
 import pickle as pkl
 import collections
+import socket
 
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 def predict_img(net,
                 full_img,
@@ -126,9 +128,9 @@ roll = 0
 height = 1
 
 distAheadOfSensor = 30
-spaceToLeftSide = 5    
-spaceToRightSide = 5
-bottomOffset = 1
+spaceToLeftSide = 3    
+spaceToRightSide = 3
+bottomOffset = 1.6
 
 imgw = 848
 imgh = 480
@@ -136,8 +138,8 @@ window_size = 10
 
 if __name__ == "__main__":
 
-    in_files = '/home/fmon005/Videos/test_campus1.mp4'
-    model_path = './model/Lanenet0304.pth'
+    in_files = '/home/fmon005/Videos/test_campus.mp4'
+    model_path = './model/Lanenet.pth'
     # CarlaCP_epoch20.pth
     # old_CP_epoch14.pth
     cap = cv2.VideoCapture(in_files)
@@ -229,7 +231,9 @@ if __name__ == "__main__":
             left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview)
             lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview)
 
-
+            laneparam = np.hstack((leftparam,rightparam))
+            data = laneparam.tobytes()
+            sock.sendto(data, ('192.168.0.213', 5500))
 
             # lanemask, lane_coords = lane_mask_coords(warpimage)
             # fit_params = []
@@ -341,8 +345,11 @@ if __name__ == "__main__":
             """
             cv2.namedWindow('result',cv2.WINDOW_AUTOSIZE)
             cv2.imshow('result', lane_img)
+            cv2.namedWindow('result1',cv2.WINDOW_AUTOSIZE)
+            cv2.imshow('result', warpimage)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     cv2.destroyAllWindows()
     # videoWriter.release()
+    sock.close()

@@ -111,12 +111,12 @@ mtx = np.array([[633.0128, 0., 425.0031],
                 ])
 dist = np.array([0.1020, -0.1315, 0, 0, 0])
 
-pitch = 2
-yaw = 0
+pitch = 3
+yaw = 3
 roll = 0
-height = 1
+height = 1.6
 
-distAheadOfSensor = 15
+distAheadOfSensor = 30
 spaceToLeftSide = 5    
 spaceToRightSide = 5
 bottomOffset = 1
@@ -127,7 +127,7 @@ imgh = 480
 if __name__ == "__main__":
 
     in_files = '/home/fmon005/Videos/output1.mp4'
-    model_path = './model/Lanenet.pth'
+    
     cap = cv2.VideoCapture(in_files)
     # out_files = get_output_filenames(args)
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     OutImageSize = np.array([np.nan, np.int_(imgw/2)])  # image H, image W
 
     fit_model = RANSACRegressor(PolynomialRegression(degree=2), residual_threshold=10, random_state=0)
-
+    model_path = './model/Lanenet.pth'
     net = UNet(n_channels=3, n_classes=1)
 
     logging.info("Loading model {}".format(model_path))
