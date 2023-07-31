@@ -7,3 +7,15 @@
 *.pyc
 ./lanedet_ros2/lanedet_ros2/model/condlane_r101_culane.pth
 ./yolo3d_ros2/yolo3d_ros2/weights/epoch_10.pkl
+
+./lanedet_ros2/lanedet_ros2/model/condlane_r101_culane.pth
+./orb_slam2_ros/orb_slam2/Vocabulary/ORBvoc.txt
+./orb_slam2_ros/orb_slam2/Map/map.bin
+./lane_detection_package/lane_detection_package/GRMN0119.MP4
+./yolo3d_ros2/yolo3d_ros2/model3D.trt
+./yolo3d_ros2/yolo3d_ros2/weights/epoch_10.pkl
+./yolo3d_ros2/yolo3d_ros2/weights/model_fp16.trt
+./yolo3d_ros2/yolo3d_ros2/model3D.onnx
+./yolo_trt_ros2/yolo_trt_ros2/yolo/yolov4.weights
+./yolo_trt_ros2/yolo_trt_ros2/yolo/yolov4-416.onnx
+./yolo_trt_ros2/yolo_trt_ros2/yolo/yolov4-416.trt
