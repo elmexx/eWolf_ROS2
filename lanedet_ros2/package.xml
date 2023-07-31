@@ -13,6 +13,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>vision_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>lane_parameter_msg</exec_depend>
   <exec_depend>torch</exec_depend>
   <exec_depend>torchvision</exec_depend>

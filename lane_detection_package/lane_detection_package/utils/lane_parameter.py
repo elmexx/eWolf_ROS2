@@ -146,6 +146,7 @@ class BirdsEyeView:
         worldpoint_vc = np.dot(worldpoint_sc, vehicle_Matrix.T)
         point_worldcoor = worldpoint_vc[:,0:2]
         point_bevcoor = np.int_(np.round(worldpoint[:,0:2]))
+        point_worldcoor = point_worldcoor[point_worldcoor[:,0]<=self.distAheadOfSensor]
         return point_worldcoor, point_bevcoor
     
     def bevimagetovehicle(self, bevpoint):
@@ -493,7 +494,7 @@ def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
                 }
         return ret
 
-def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview):
+def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview, lanecolor = (0,0,255)):
     line_img = np.zeros_like(warpimage).astype(np.uint8)
     fit_param=lane_param
     xPoints = np.linspace(OutImageView.bottomOffset, OutImageView.distAheadOfSensor,100)[:, np.newaxis]
@@ -529,7 +530,7 @@ def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview):
         # lane_image = np.zeros_like(img).astype(np.uint8)
         lane_image = np.zeros((img.shape[0],img.shape[1])).astype(np.uint8)
         for points in points_xy:
-            lane_image = cv2.circle(img,points,1,(0,0,255),-1)
+            lane_image = cv2.circle(img,points,1,lanecolor,-1)
         return lane_image  
 
 """

@@ -494,9 +494,9 @@ def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
                 }
         return ret
 
-def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview):
+def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview, lanecolor=(0,0,255)):
     line_img = np.zeros_like(warpimage).astype(np.uint8)
-    fit_param=lane_param
+    fit_param = lane_param
     xPoints = np.linspace(OutImageView.bottomOffset, OutImageView.distAheadOfSensor,100)[:, np.newaxis]
     
     worldHW = np.array([OutImageView.distAheadOfSensor, OutImageView.spaceToRightSide +OutImageView.spaceToLeftSide ])
@@ -528,10 +528,14 @@ def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview):
         src_xy = np.flip(src_xy[:,0:2],1)
         points_xy = [tuple(x) for x in src_xy]
         # lane_image = np.zeros_like(img).astype(np.uint8)
-        lane_image = np.zeros((img.shape[0],img.shape[1])).astype(np.uint8)
-        for points in points_xy:
-            lane_image = cv2.circle(img,points,1,(0,0,255),-1)
-        return lane_image  
+        if not points_xy:
+            return img
+        else: 
+            lane_image = np.zeros((img.shape[0],img.shape[1])).astype(np.uint8)
+                
+            for points in points_xy:
+                lane_image = cv2.circle(img,points,1,lanecolor,-1)
+            return lane_image  
 
 """
 lane_label = lanelabel(binary_image, min_area_threshold=300)

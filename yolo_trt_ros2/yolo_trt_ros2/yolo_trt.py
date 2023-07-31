@@ -17,6 +17,7 @@ from std_msgs.msg import String
 from vision_msgs.msg import ObjectHypothesis, ObjectHypothesisWithPose, BoundingBox2D, Detection2D, Detection2DArray
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
+from bboxes_msg.msg import BoundingBox, BoundingBoxes
 
 # Yolo Detection imports
 from .utils.yolo_classes import get_cls_dict
@@ -44,8 +45,8 @@ class YoloDetector(Node):
         self.subscription  # prevent unused variable warning
         self.bridge = CvBridge()
         # Create a Detection 2D array topic to publish results on
-        self.detection_publisher = self.create_publisher(Detection2DArray, 'yolodetection', 10)
-
+        self.detection_publisher = self.create_publisher(Detection2DArray, 'yolo2ddetection', 10)
+        self.bboxes_publisher = self.create_publisher(BoundingBoxes, 'yolo2dbboxes', 10)
         # Create an Image publisher for the results
         self.result_publisher = self.create_publisher(Image,'yolodetection_image',10)
         
@@ -75,15 +76,28 @@ class YoloDetector(Node):
           print(e)
         
         detection_array = Detection2DArray()
-        
+        bboxes_msg = BoundingBoxes()
         boxes, confs, clss = self.trt_yolo.detect(cv_image, conf_th=0.3)
                 
         img = self.vis.draw_bboxes(cv_image, boxes, confs, clss)
         
         for box, cf, cl in zip(boxes, confs, clss):
+
             cl = int(cl)
-            
             cls_name = self.cls_dict.get(cl, 'CLS{}'.format(cl))
+
+            bbox_msg = BoundingBox()
+            bbox_msg.probability = float(cf)
+            bbox_msg.xmin = int(float(box[0]))
+            bbox_msg.ymin = int(float(box[1]))
+            bbox_msg.xmax = int(float(box[2]))
+            bbox_msg.ymax = int(float(box[3]))
+            bbox_msg.id = cl
+            bbox_msg.cls = cls_name
+
+            # Definition of 2D Bounding Boxes
+            bboxes_msg.header = data.header
+            bboxes_msg.bounding_boxes.append(bbox_msg)
             
             # Definition of 2D array message and ading all object stored in it.
             object_hypothesis_with_pose = ObjectHypothesisWithPose()
@@ -111,6 +125,7 @@ class YoloDetector(Node):
         
         # Publishing the results onto the the Detection2DArray vision_msgs format
         self.detection_publisher.publish(detection_array)
+        self.bboxes_publisher.publish(bboxes_msg)
         # Publishing the results
         ros_image = self.bridge.cv2_to_imgmsg(img)
         ros_image.header.frame_id = 'yolo_frame'

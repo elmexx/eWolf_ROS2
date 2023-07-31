@@ -15,6 +15,8 @@ from tqdm import tqdm
 from tools.lane_parameter import DictObjHolder, bev_perspective, PolynomialRegression, get_fit_param, insertLaneBoundary
 from sklearn.linear_model import RANSACRegressor
 
+import matplotlib.pyplot as plt
+
 # Intel realsense 848*480
 mtx = np.array([[633.0128, 0., 425.0031],
                 [0., 635.3088, 228.2753],
@@ -22,14 +24,14 @@ mtx = np.array([[633.0128, 0., 425.0031],
                 ])
 dist = np.array([0.1020, -0.1315, 0, 0, 0])
 
-pitch = 2
+pitch = 3
 yaw = 0
 roll = 0
 height = 1.6
 
 distAheadOfSensor = 30
-spaceToLeftSide = 5    
-spaceToRightSide = 5
+spaceToLeftSide = 4    
+spaceToRightSide = 4
 bottomOffset = 1
 
 imgw = 848
@@ -128,6 +130,12 @@ def process(args):
     for p in tqdm(paths):
         detect.run(p)
 
+def moving_average(array, window_data):
+    window_data[:-1] = window_data[1:]
+    window_data[-1] = array
+    moving_avg = np.mean(window_data, axis=0)
+    return moving_avg
+
 if __name__ == '__main__':
     """
     parser = argparse.ArgumentParser()
@@ -147,49 +155,175 @@ if __name__ == '__main__':
     cfg.load_from = "model/condlane_r101_culane.pth"
     detect = Detect(cfg)
     # paths = get_img_paths("Campus.png")
-    img = cv2.imread("Campus.png")
-    data = detect.run(img)
-    lanes = [lane.to_array(detect.cfg) for lane in data['lanes']]
-    lane_num = len(lanes)
-    warpimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
-    lanes_list = [[] for _ in range(lane_num)]
-    lanes_wc = [[] for _ in range(lane_num)]
-    lane_idx = 0
-    for lane in lanes:
-        for x, y in lane:
-            if x <= 0 or y <= 0:
-                continue
-            x = np.round(x * detect.x_scale)
-            y = np.round(y * detect.y_scale)
-            x, y = int(x), int(y)
-            lanes_list[lane_idx].append(np.array([x,y]))
-        lanes_wc[lane_idx], _ = birdseyeview.imagetovehicle(np.asarray(lanes_list[lane_idx]))
-        lane_idx = lane_idx + 1
+    # img = cv2.imread("Test.png")
+    # ori_img = img.copy()
+    # data = detect.run(img)
+    # lanes = [lane.to_array(detect.cfg) for lane in data['lanes']]
+    # lane_num = len(lanes)
+    # warpimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
+    # lanes_list = [[] for _ in range(lane_num)]
+    # lanes_wc = [[] for _ in range(lane_num)]
+    # lane_idx = 0
+    # for lane in lanes:
+    #     for x, y in lane:
+    #         if x <= 0 or y <= 0:
+    #             continue
+    #         x = np.round(x * detect.x_scale)
+    #         y = np.round(y * detect.y_scale)
+    #         x, y = int(x), int(y)
+    #         cv2.circle(img, (x, y), 3, (0,255,0), -1)
 
-            # cv2.circle(img, (x, y), 3, (0,0,255), -1)
-    
-    # get left and right lanes
-    left_lanes = []
-    right_lanes = []
-    if lanes_wc:    #   !!if lanes_wc = [[],[]], there is an error!
-        for lane in lanes_wc:
-            lateraloffset = lane[0][1]
-            if lateraloffset>=0:
-                left_lanes.append(lane)
-            else:
-                right_lanes.append(lane)
-    if left_lanes:
-        left_lateraloffset = []
-        for lane in left_lanes: 
-            left_lateraloffset.append(lane[0][1])
-        idxmin = np.argmin(left_lateraloffset)
-        egoleft = left_lanes[idxmin]
-    if right_lanes:
-        right_lateraloffset = []
-        for lane in right_lanes: 
-            right_lateraloffset.append(lane[0][1])
-        idxmin = np.argmin(right_lateraloffset)
-        egoright = right_lanes[idxmin]
-    
-    
+    #         lanes_list[lane_idx].append(np.array([x,y]))
+    #     lanes_wc[lane_idx], _ = birdseyeview.imagetovehicle(np.asarray(lanes_list[lane_idx]))
+    #     lane_idx = lane_idx + 1
+    # alpha = 0.4
+    # img = cv2.addWeighted(img, alpha, ori_img, 1 - alpha, 0)
+    # # get left and right lanes
+    # left_lanes = []
+    # right_lanes = []
+    # if lanes_wc:    #   !!if lanes_wc = [[],[]], there will give an error!
+    #     for lane in lanes_wc:
+    #         lateraloffset = lane[0][1]
+    #         if lateraloffset>=0:
+    #             left_lanes.append(lane)
+    #         else:
+    #             right_lanes.append(lane)
+    # if left_lanes:
+    #     left_lateraloffset = []
+    #     for lane in left_lanes: 
+    #         left_lateraloffset.append(lane[0][1])
+    #     idxmin = np.argmin(left_lateraloffset)
+    #     egoleft = left_lanes[idxmin]
+    # if right_lanes:
+    #     right_lateraloffset = []
+    #     for lane in right_lanes: 
+    #         right_lateraloffset.append(lane[0][1])
+    #     idxmax = np.argmax(right_lateraloffset)
+    #     egoright = right_lanes[idxmax]
+    # left_init_param = np.array([])
+    # right_init_param = np.array([])
+    # leftparam = get_fit_param(egoleft, left_init_param, left_fit_model)
+    # rightparam = get_fit_param(egoright, right_init_param, right_fit_model)
+
+    # left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview, (0,0,255))
+    # lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview, (255,0,0))
+    window_size = 10
+    left_window_data = np.zeros((window_size,3))
+    right_window_data = np.zeros((window_size,3))
+    video_path = 'test_campus.mp4'
+    cap = cv2.VideoCapture(video_path)
+    while(cap.isOpened()):
+        ret, img = cap.read()
+        if ret==True:
+            ori_img = img.copy()
+            data = detect.run(img)
+            lanes = [lane.to_array(detect.cfg) for lane in data['lanes']]
+            lane_num = len(lanes)
+            warpimage, unwarp_matrix, birdseyeview = bev_perspective(img, mtx, CameraPose, OutImageView, OutImageSize)
+            lanes_list = [[] for _ in range(lane_num)]
+            lanes_wc = [[] for _ in range(lane_num)]
+            lane_idx = 0
+            for lane in lanes:
+                for x, y in lane:
+                    if x <= 0 or y <= 0:
+                        continue
+                    x = np.round(x * detect.x_scale)
+                    y = np.round(y * detect.y_scale)
+                    x, y = int(x), int(y)
+                    # cv2.circle(img, (x, y), 3, (0,255,0), -1)
+
+                    lanes_list[lane_idx].append(np.array([x,y]))
+                lanes_wc[lane_idx], _ = birdseyeview.imagetovehicle(np.asarray(lanes_list[lane_idx]))
+                lane_idx = lane_idx + 1
+            alpha = 0.4
+            img = cv2.addWeighted(img, alpha, ori_img, 1 - alpha, 0)
+            
+            ### 
+            # if len(lanes_wc) == 1:
+            #     lane = lanes_wc[0]
+            #     lateraloffset = lane[0][1]
+            #     if lateraloffset>=0:
+            #         v_right = lane
+            #         v_right[:,1] = v_right[:,1]-3.5
+            #         lanes_wc.append(v_right)
+            #     else:
+            #         v_left = lane
+            #         v_left[:,1] = v_left[:,1]+3.5
+            #         lanes_wc.append(v_left)
+
+            # get left and right lanes
+            left_lanes = []
+            right_lanes = []
+            egoleft = np.array([])
+            egoright = np.array([])
+            if lanes_wc:    #   !!if lanes_wc = [[],[]], there will give an error!
+                for lane in lanes_wc:
+                    lateraloffset = lane[0][1]
+                    if lateraloffset>=0:
+                        left_lanes.append(lane)
+                    else:
+                        right_lanes.append(lane)
+            if left_lanes:
+                left_lateraloffset = []
+                for lane in left_lanes: 
+                    left_lateraloffset.append(lane[0][1])
+                idxmin = np.argmin(left_lateraloffset)
+                egoleft = left_lanes[idxmin]
+                if egoleft[0][1] > 3:
+                    egoleft = np.array([])
+            if right_lanes:
+                right_lateraloffset = []
+                for lane in right_lanes: 
+                    right_lateraloffset.append(lane[0][1])
+                idxmax = np.argmax(right_lateraloffset)
+                egoright = right_lanes[idxmax]
+                if egoright[0][1] < -3:
+                    egoright = np.array([])
+
+            if egoleft.size==0 and egoright.size!=0:
+                egoleft = egoright.copy()
+                egoleft[:,1] = egoleft[:,1]+3.5
+            if egoleft.size!=0 and egoright.size==0:
+                egoright = egoleft.copy()
+                egoright[:,1] = egoright[:,1]-3.5
+            #####
+            # get ego left and right lane
+            #####
+            # if left_lanes:
+            #     left_lateraloffset = []
+            #     for lane in left_lanes: 
+            #         left_lateraloffset.append(lane[0][1])
+            #     idxmin = np.argmin(left_lateraloffset)
+            #     egoleft = left_lanes[idxmin]
+            # if right_lanes:
+            #     right_lateraloffset = []
+            #     for lane in right_lanes: 
+            #         right_lateraloffset.append(lane[0][1])
+            #     idxmax = np.argmax(right_lateraloffset)
+            #     egoright = right_lanes[idxmax]
+
+            
+            
+            left_init_param = np.array([])
+            right_init_param = np.array([])
+            leftparam = get_fit_param(egoleft, left_init_param, left_fit_model)
+            rightparam = get_fit_param(egoright, right_init_param, right_fit_model)
+
+            if leftparam.size > 0:
+                leftparam = moving_average(leftparam, left_window_data)
+                left_window_data = np.vstack((left_window_data[1:], leftparam))
+            if rightparam.size > 0:
+                rightparam = moving_average(rightparam, right_window_data)
+                right_window_data = np.vstack((right_window_data[1:], rightparam))
+
+
+            left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview, (0,0,255))
+            lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview, (255,0,0))
+            
+            cv2.imshow('condlane', img)
+            cv2.imshow('bev', warpimage)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    cv2.destroyAllWindows()
+
         
