@@ -6,3 +6,4 @@
 **/__pycache__/
 *.pyc
 ./lanedet_ros2/lanedet_ros2/model/condlane_r101_culane.pth
+./yolo3d_ros2/yolo3d_ros2/weights/epoch_10.pkl
