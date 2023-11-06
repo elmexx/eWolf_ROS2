@@ -13,6 +13,7 @@ from skimage.measure import regionprops
 # from skimage.color import label2rgb
 from sklearn.metrics import mean_squared_error
 from sklearn.linear_model import RANSACRegressor
+from numba import jit
 
 class PolynomialRegression(object):
     def __init__(self, degree=2, coeffs=None):
@@ -42,27 +43,30 @@ class DictObjHolder(object):
 
     def __getattr__(self, name):
         return self.dct[name]
-    
+ 
+@jit 
 def rotX(a):
     a = np.deg2rad(a)
-    R = np.array([[1,0,0],
-                  [0,np.cos(a),-np.sin(a)],
-                  [0,np.sin(a),np.cos(a)]])
-    return R
+    r = np.array([[1.0,0.0,0.0],
+                  [0.0,np.cos(a),-np.sin(a)],
+                  [0.0,np.sin(a),np.cos(a)]])
+    return r
 
+@jit
 def rotY(a):
     a = np.deg2rad(a)
-    R = np.array([[np.cos(a),0,np.sin(a)],
-                  [0,1,0],
-                  [-np.sin(a),0,np.cos(a)]])
-    return R
+    r = np.array([[np.cos(a),0.0,np.sin(a)],
+                  [0.0,1.0,0.0],
+                  [-np.sin(a),0.0,np.cos(a)]])
+    return r
 
+@jit
 def rotZ(a):
     a = np.deg2rad(a)
-    R = np.array([[np.cos(a),-np.sin(a),0],
-                  [np.sin(a),np.cos(a),0],
-                  [0,0,1]])
-    return R 
+    r = np.array([[np.cos(a),-np.sin(a),0.0],
+                  [np.sin(a),np.cos(a),0.0],
+                  [0.0,0.0,1.0]])
+    return r 
 
 class BirdsEyeView:
     def __init__(self):
@@ -171,8 +175,12 @@ class BirdsEyeView:
         vehicle_Matrixinv = np.array([[0, -1, self.worldHW[1]/2],
                                       [-1, 0, self.worldHW[0]],
                                       [0, 0, 1]])
-        worldpoint = np.dot(vehicle_Matrixinv, np.hstack([worldpoint_vc,1]))*np.array([self.scalex, self.scaley, 1])
-        imgpoint = np.dot(np.linalg.inv(self.BirdsEyeViewTransform),worldpoint)
+        worldpoint_n = np.ones((worldpoint_vc.shape[0],worldpoint_vc.shape[1]+1))
+        worldpoint_n[:,:-1] = worldpoint_vc
+        # worldpoint = np.dot(vehicle_Matrixinv, np.hstack([worldpoint_vc,1]))*np.array([self.scalex, self.scaley, 1])
+        worldpoint = np.dot(worldpoint_n, vehicle_Matrixinv)*np.array([self.scalex, self.scaley, 1])
+        
+        imgpoint = np.dot(np.linalg.inv(self.BirdsEyeViewTransform), worldpoint.T)
         imgpoint /= imgpoint[2]
         point_imgcoor = np.int_(np.round(imgpoint[0:2]))
         # point_bevcoor = np.int_(np.round(worldpoint[0:2]))
@@ -199,7 +207,7 @@ def lanelabel(binary_image, min_area_threshold=500):
     #out = (label_image==(1+np.argmax([i.area for i in region_props]))).astype(int)
     return lane_label_ret
 
-
+@jit
 def left_right_lane(fit_params, warpimage):
     x_th = warpimage.shape[1]/2
     left_lane = []
@@ -214,8 +222,8 @@ def left_right_lane(fit_params, warpimage):
             left_lane.append(fit_param)
             left_dist.append(fit_param[2])
     
-    ego_right_index = right_dist.index(min(right_dist))
-    ego_left_index = left_dist.index(min(left_dist))
+    ego_right_index = right_dist.index(np.min(right_dist))
+    ego_left_index = left_dist.index(np.min(left_dist))
     ego_right_lane = right_lane[ego_right_index]
     ego_left_lane = left_lane[ego_left_index]
     return ego_right_lane,ego_left_lane
@@ -238,11 +246,13 @@ def get_fit_param(wordpoint_vc, init_fit_param, fit_model):
             fit_model.fit(np.expand_dims(nonzero_x, axis=1), nonzero_y)
             fit_param = fit_model.estimator_.coeffs
 
-            isGood = isgood(fit_param)
-            if isGood == True:
-                return fit_param
-            else:
-                return init_fit_param
+            return fit_param
+        
+            # isGood = isgood(fit_param)
+            # if isGood == True:
+            #     return fit_param
+            # else:
+            #     return init_fit_param
     except:
         fit_param = init_fit_param
         return init_fit_param
@@ -494,7 +504,32 @@ def lanefit_bak(binary_image,mtx,CameraPose, OutImageView, OutImageSize):
                 }
         return ret
 
-def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview, lanecolor=(0,0,255)):
+def get_points_xy(fit_param, xPoints, OutImageView, worldHW, birdseyeview, line_img, img):
+    fit_x = fit_param[0] * xPoints ** 2 + fit_param[1] * xPoints ** 1 + fit_param[2]    
+    idx_fitx = (fit_x>=-OutImageView.spaceToRightSide) & (fit_x<=OutImageView.spaceToLeftSide)
+    
+    X = xPoints[idx_fitx]
+    y = fit_x[idx_fitx]
+
+    worldpoints = np.ones((X.shape[0],3))
+    worldpoints[:,0] = X
+    worldpoints[:,1] = y
+
+    T_matrix = np.array([[0, -1, worldHW[1]/2],
+                        [-1, 0, worldHW[0]],
+                        [0, 0, 1]])
+    bevpoints = np.dot(worldpoints, T_matrix.T)
+    imgpoints = np.int_(bevpoints[:,0:2] * np.array([birdseyeview.scalex, birdseyeview.scaley]))
+    line_pts = (imgpoints[:,1], imgpoints[:,0])   
+    line_img[line_pts] = 255
+    mask_img = cv2.warpPerspective(line_img, birdseyeview.unwarp_matrix, (img.shape[1], img.shape[0]))
+    
+    src_xy = np.argwhere(mask_img != 0)
+    src_xy = np.flip(src_xy[:,0:2],1)
+    points_xy = [tuple(x) for x in src_xy]
+    return points_xy
+
+def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview, lanecolor=(0,0,255), shape_line = False):
     line_img = np.zeros_like(warpimage).astype(np.uint8)
     fit_param = lane_param
     xPoints = np.linspace(OutImageView.bottomOffset, OutImageView.distAheadOfSensor,100)[:, np.newaxis]
@@ -505,36 +540,43 @@ def insertLaneBoundary(img, warpimage, lane_param, OutImageView, birdseyeview, l
         # lane_image = np.zeros_like(img).astype(np.uint8)
         return img
     else:
-        fit_x = fit_param[0] * xPoints ** 2 + fit_param[1] * xPoints ** 1 + fit_param[2]    
-        idx_fitx = (fit_x>=-OutImageView.spaceToRightSide) & (fit_x<=OutImageView.spaceToLeftSide)
+        # fit_x = fit_param[0] * xPoints ** 2 + fit_param[1] * xPoints ** 1 + fit_param[2]    
+        # idx_fitx = (fit_x>=-OutImageView.spaceToRightSide) & (fit_x<=OutImageView.spaceToLeftSide)
         
-        X = xPoints[idx_fitx]
-        y = fit_x[idx_fitx]
+        # X = xPoints[idx_fitx]
+        # y = fit_x[idx_fitx]
 
-        worldpoints = np.ones((X.shape[0],3))
-        worldpoints[:,0] = X
-        worldpoints[:,1] = y
+        # worldpoints = np.ones((X.shape[0],3))
+        # worldpoints[:,0] = X
+        # worldpoints[:,1] = y
 
-        T_matrix = np.array([[0, -1, worldHW[1]/2],
-                            [-1, 0, worldHW[0]],
-                            [0, 0, 1]])
-        bevpoints = np.dot(worldpoints, T_matrix.T)
-        imgpoints = np.int_(bevpoints[:,0:2] * np.array([birdseyeview.scalex, birdseyeview.scaley]))
-        line_pts = (imgpoints[:,1], imgpoints[:,0])   
-        line_img[line_pts] = 255
-        mask_img = cv2.warpPerspective(line_img, birdseyeview.unwarp_matrix, (img.shape[1], img.shape[0]))
+        # T_matrix = np.array([[0, -1, worldHW[1]/2],
+        #                     [-1, 0, worldHW[0]],
+        #                     [0, 0, 1]])
+        # bevpoints = np.dot(worldpoints, T_matrix.T)
+        # imgpoints = np.int_(bevpoints[:,0:2] * np.array([birdseyeview.scalex, birdseyeview.scaley]))
+        # line_pts = (imgpoints[:,1], imgpoints[:,0])   
+        # line_img[line_pts] = 255
+        # mask_img = cv2.warpPerspective(line_img, birdseyeview.unwarp_matrix, (img.shape[1], img.shape[0]))
         
-        src_xy = np.argwhere(mask_img != 0)
-        src_xy = np.flip(src_xy[:,0:2],1)
-        points_xy = [tuple(x) for x in src_xy]
-        # lane_image = np.zeros_like(img).astype(np.uint8)
+        # src_xy = np.argwhere(mask_img != 0)
+        # src_xy = np.flip(src_xy[:,0:2],1)
+        # points_xy = [tuple(x) for x in src_xy]
+        
+        points_xy = get_points_xy(fit_param, xPoints, OutImageView, worldHW, birdseyeview, line_img, img)
         if not points_xy:
             return img
         else: 
             lane_image = np.zeros((img.shape[0],img.shape[1])).astype(np.uint8)
-                
-            for points in points_xy:
-                lane_image = cv2.circle(img,points,1,lanecolor,-1)
+
+            if not shape_line:    
+                for points in points_xy:
+                    lane_image = cv2.circle(img,points,1,lanecolor,-1)
+            else:
+                for index, item in enumerate(points_xy): 
+                    if index == len(points_xy) -1:
+                        break
+                    lane_image = cv2.line(img, item, points_xy[index + 1], lanecolor, 2) 
             return lane_image  
 
 """

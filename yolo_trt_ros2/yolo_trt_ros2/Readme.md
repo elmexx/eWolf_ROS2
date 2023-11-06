@@ -1,4 +1,4 @@
 run yolo trt
 ```
-python trt_yolo.py --image dog.jpg -m yolov4-416
+python demo_trt_yolo.py --image dog.jpg -m yolov4-416
 ```

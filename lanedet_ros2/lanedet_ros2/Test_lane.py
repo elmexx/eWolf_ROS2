@@ -17,6 +17,8 @@ from sklearn.linear_model import RANSACRegressor
 
 import matplotlib.pyplot as plt
 
+from numba import jit
+
 # Intel realsense 848*480
 mtx = np.array([[633.0128, 0., 425.0031],
                 [0., 635.3088, 228.2753],
@@ -210,8 +212,11 @@ if __name__ == '__main__':
     window_size = 10
     left_window_data = np.zeros((window_size,3))
     right_window_data = np.zeros((window_size,3))
-    video_path = 'test_campus.mp4'
+    video_path = 'test_campus_curve.mp4'
     cap = cv2.VideoCapture(video_path)
+
+    m_point = 480
+
     while(cap.isOpened()):
         ret, img = cap.read()
         if ret==True:
@@ -223,6 +228,7 @@ if __name__ == '__main__':
             lanes_list = [[] for _ in range(lane_num)]
             lanes_wc = [[] for _ in range(lane_num)]
             lane_idx = 0
+            binaryimg_original = np.zeros((img.shape[0], img.shape[1])).astype(np.uint8)
             for lane in lanes:
                 for x, y in lane:
                     if x <= 0 or y <= 0:
@@ -230,6 +236,7 @@ if __name__ == '__main__':
                     x = np.round(x * detect.x_scale)
                     y = np.round(y * detect.y_scale)
                     x, y = int(x), int(y)
+                    cv2.circle(binaryimg_original, (x, y), 3, 255, -1)
                     # cv2.circle(img, (x, y), 3, (0,255,0), -1)
 
                     lanes_list[lane_idx].append(np.array([x,y]))
@@ -316,12 +323,15 @@ if __name__ == '__main__':
                 rightparam = moving_average(rightparam, right_window_data)
                 right_window_data = np.vstack((right_window_data[1:], rightparam))
 
-
+            m_laneparam = (leftparam + rightparam)/2
             left_lane_img = insertLaneBoundary(img, warpimage, leftparam, OutImageView, birdseyeview, (0,0,255))
             lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, OutImageView, birdseyeview, (255,0,0))
+            m_lane_img = insertLaneBoundary(lane_img, warpimage, m_laneparam, OutImageView, birdseyeview, (0,255,255), True)
             
-            cv2.imshow('condlane', img)
-            cv2.imshow('bev', warpimage)
+            out_img = cv2.line(m_lane_img, (480,460),(480,480),(0,255,0),3)
+
+            cv2.imshow('condlane', out_img)
+            # cv2.imshow('bev', binaryimg_original)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
     cv2.destroyAllWindows()

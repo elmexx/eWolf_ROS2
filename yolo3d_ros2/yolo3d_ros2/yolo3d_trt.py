@@ -228,7 +228,7 @@ class Yolo3dDetector(Node):
         self.proj_matrix[0:3, 0:3] = camera_info[0:3,0:3] 
         self.frame_id = None
 
-    def object_to_marker(self, obj, frame_id="base", marker_id=None, duration=10, color=None):
+    def object_to_marker(self, obj, frame_id="base_link", marker_id=None, duration=10, color=None):
         """ Transform an object to a marker.
 
         Args:

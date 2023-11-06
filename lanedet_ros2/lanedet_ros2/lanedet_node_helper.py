@@ -227,7 +227,7 @@ class Lanedet(Node):
                 y = np.round(y * self.detect.y_scale)
                 x, y = int(x), int(y)
                 cv2.circle(binaryimg_original, (x, y), 3, 255, -1)
-                cv2.circle(img, (x, y), 3, (0,255,0), -1)
+                # cv2.circle(img, (x, y), 3, (0,255,0), -1)
                 lanes_list[lane_idx].append(np.array([x,y]))
             color_idx = color_idx + 1
             lanes_wc[lane_idx], _ = birdseyeview.imagetovehicle(np.asarray(lanes_list[lane_idx]))
@@ -270,6 +270,7 @@ class Lanedet(Node):
 
         left_init_param = np.array([])
         right_init_param = np.array([])
+        m_laneparam = np.array([])
         leftparam = get_fit_param(egoleft, left_init_param, self.left_fit_model)
         rightparam = get_fit_param(egoright, right_init_param, self.right_fit_model)
 
@@ -279,10 +280,13 @@ class Lanedet(Node):
         if rightparam.size > 0:
             rightparam = moving_average(rightparam, self.right_window_data)
             self.right_window_data = np.vstack((self.right_window_data[1:], rightparam))
+        
+        m_laneparam = (leftparam + rightparam)/2
 
         left_lane_img = insertLaneBoundary(img, warpimage, leftparam, self.OutImageView, birdseyeview, (0,0,255))
-        lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, self.OutImageView, birdseyeview, (255,0,0))
-            
+        right_lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, self.OutImageView, birdseyeview, (255,0,0))
+        lane_img = insertLaneBoundary(right_lane_img, warpimage, m_laneparam, self.OutImageView, birdseyeview, (0,255,255))
+        lane_img = cv2.line(lane_img, (480,460),(480,480),(0,255,0),3)
         # imageX, imageY = np.where(warpimage)
         # xyBoundaryPoints = birdseyeview.bevimagetovehicle(np.column_stack((imageY,imageX)))
 
@@ -298,7 +302,7 @@ class Lanedet(Node):
         # lane_img = insertLaneBoundary(left_lane_img, warpimage, rightparam, self.OutImageView, birdseyeview)
         
         cv2.imshow('view', lane_img)
-        cv2.imshow('bev', warpimage)
+        # cv2.imshow('bev', warpimage)
         cv2.waitKey(1)
         # leftparam = np.array([])
         # rightparam = np.array([])
@@ -309,8 +313,11 @@ class Lanedet(Node):
         
         msg_stamp = self.get_clock().now().to_msg()
         
+        combined_lanes.header.stamp = msg_stamp
+        combined_lanes.header.frame_id =='base_link'
+
         left_detection.header.stamp = msg_stamp
-        left_detection.header.frame_id =='left_lane'
+        left_detection.header.frame_id =='base_link'
         if leftparam.size == 0:
             left_detection.a = 0.0
             left_detection.b = 0.0
@@ -331,7 +338,7 @@ class Lanedet(Node):
                 combined_lanes.markings_left.append(lmp)
         
         right_detection.header.stamp = msg_stamp
-        right_detection.header.frame_id =='right_lane'
+        right_detection.header.frame_id =='base_link'
         if rightparam.size == 0:
             right_detection.a = 0.0
             right_detection.b = 0.0

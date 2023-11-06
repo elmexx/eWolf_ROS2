@@ -47,8 +47,8 @@ public:
         visualization_msgs::msg::Marker ma_right_lane;
         
 
-        ma_left_lane.header.stamp = this->now();
-        ma_left_lane.header.frame_id = "map";
+        ma_left_lane.header.stamp = msg->header.stamp; //this->now();
+        ma_left_lane.header.frame_id = "base_link";
         ma_left_lane.id = 0;
         ma_left_lane.type = visualization_msgs::msg::Marker::LINE_STRIP;
         ma_left_lane.action = visualization_msgs::msg::Marker::ADD;
@@ -76,8 +76,8 @@ public:
             ma_left_lane.points.push_back(point);
         }
 
-        ma_right_lane.header.stamp = this->now();
-        ma_right_lane.header.frame_id = "map";
+        ma_right_lane.header.stamp = msg->header.stamp; //this->now();
+        ma_right_lane.header.frame_id = "base_link";
         ma_right_lane.id = 1;
         ma_right_lane.type = visualization_msgs::msg::Marker::LINE_STRIP;
         ma_right_lane.action = visualization_msgs::msg::Marker::ADD;
@@ -89,9 +89,9 @@ public:
         ma_right_lane.pose.orientation.z = 0;
         ma_right_lane.pose.orientation.w = 1;
         ma_right_lane.color.a=1.0;
-        ma_right_lane.color.r=1.0;
+        ma_right_lane.color.r=0;
         ma_right_lane.color.g=0;
-        ma_right_lane.color.b=0;
+        ma_right_lane.color.b=1.0;
         ma_right_lane.scale.x=0.1;
         ma_right_lane.scale.y=0.1;
         ma_right_lane.scale.z=0.1;
@@ -108,28 +108,28 @@ public:
         pub_marker->publish(ma_left_lane);
         pub_marker->publish(ma_right_lane);
 
-        visualization_msgs::msg::Marker marker;
-        marker.header.frame_id = "map";
-        marker.header.stamp = this->now();
-        marker.id = 911;
-        marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
-        marker.action = visualization_msgs::msg::Marker::ADD;
-        marker.mesh_resource = "file://"+ament_index_cpp::get_package_share_directory("lane_detection_visualization")+"/resources/low_poly_911.dae";
-        marker.pose.position.x = 0;
-        marker.pose.position.y = 0;
-        marker.pose.position.z = 0.5;
-        marker.pose.orientation.x = 0.0;
-        marker.pose.orientation.y = 0.0;
-        marker.pose.orientation.z = 0.7071067811865476;
-        marker.pose.orientation.w = 0.7071067811865476;
-        marker.scale.x = 1;
-        marker.scale.y = 1;
-        marker.scale.z = 1;
-        marker.color.b = 1.0;
-        marker.color.g = 1.0;
-        marker.color.r = 1.0;
-        marker.color.a = 1.0;
-        pub_marker->publish(marker);
+        // visualization_msgs::msg::Marker marker;
+        // marker.header.frame_id = "map";
+        // marker.header.stamp = this->now();
+        // marker.id = 911;
+        // marker.type = visualization_msgs::msg::Marker::MESH_RESOURCE;
+        // marker.action = visualization_msgs::msg::Marker::ADD;
+        // marker.mesh_resource = "file://"+ament_index_cpp::get_package_share_directory("lane_detection_visualization")+"/resources/low_poly_911.dae";
+        // marker.pose.position.x = 0;
+        // marker.pose.position.y = 0;
+        // marker.pose.position.z = 0.5;
+        // marker.pose.orientation.x = 0.0;
+        // marker.pose.orientation.y = 0.0;
+        // marker.pose.orientation.z = 0.7071067811865476;
+        // marker.pose.orientation.w = 0.7071067811865476;
+        // marker.scale.x = 1;
+        // marker.scale.y = 1;
+        // marker.scale.z = 1;
+        // marker.color.b = 1.0;
+        // marker.color.g = 1.0;
+        // marker.color.r = 1.0;
+        // marker.color.a = 1.0;
+        // pub_marker->publish(marker);
     }
 
 private:
