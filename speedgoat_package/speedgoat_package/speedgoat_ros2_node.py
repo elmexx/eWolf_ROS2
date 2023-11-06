@@ -13,7 +13,7 @@ from sensor_msgs.msg import Image as SensorImage
 from std_msgs.msg import String
 from lane_parameter_msg.msg import LaneParams
 from sensor_msgs.msg import CompressedImage
-from message_filters import Subscriber, TimeSynchronizer
+from message_filters import Subscriber, TimeSynchronizer, ApproximateTimeSynchronizer
 
 
 def UDP_send(socket_UDP, server_address, msg):
@@ -26,10 +26,12 @@ class Speedgoat(Node):
                 
         left_sub = Subscriber(self, LaneParams, 'leftlanedetection')
         right_sub = Subscriber(self, LaneParams, 'rightlanedetection')
-        ts = TimeSynchronizer([left_sub, right_sub], 10)
+        # ts = TimeSynchronizer([left_sub, right_sub], 10)
+        ts = ApproximateTimeSynchronizer([left_sub, right_sub], 10, 1)
         ts.registerCallback(self.callback)
         
-        self.host = "10.41.0.10"
+        #self.host = "10.42.0.10"
+        self.host = "169.254.18.189"
         self.port = 5500
         self.send_port = 8080
         self.buffersize = 1024
@@ -47,7 +49,7 @@ class Speedgoat(Node):
         # self.get_logger().info('left heard: "%f"' % left_sub.b)
         # self.get_logger().info('right heard: "%f"' % right_sub.a)
 
-        lane_params = np.array([left_sub.a,left_sub.b,left_sub.c, right_sub.a, right_sub.b, right_sub.c]).astype(np.float32)
+        lane_params = np.array([left_sub.a,left_sub.b,left_sub.c, right_sub.a, right_sub.b, right_sub.c]).astype(np.float64)
         
         UDP_msg = lane_params.tobytes()
         # print(UDP_msg)

@@ -10,6 +10,8 @@ from sensor_msgs.msg import Image as SensorImage
 from std_msgs.msg import String
 import cv2
 from cv_bridge import CvBridge, CvBridgeError
+import time
+
 
 class ToImg(Node):
 
@@ -33,8 +35,9 @@ class ToImg(Node):
         except CvBridgeError as e:
           cv_image = np.zeros((480,848)).astype(np.uint8)
           print(e)
-
-        cv2.imwrite('/home/fmon005/Pictures/output/%06d.png'%self.idx,cv_image)
-        self.idx = self.idx + 1
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        # cv2.imwrite('/home/fmon005/Pictures/output/%06d.png'%self.idx,cv_image)
+        cv2.imwrite('/home/fmon005/Pictures/output/%s.png'%timestr,cv_image)
+        # self.idx = self.idx + 1
         
 
