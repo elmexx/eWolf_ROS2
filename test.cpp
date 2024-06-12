@@ -81,3 +81,207 @@ int main(int argc, char * argv[])
     rclcpp::shutdown();
     return 0;
 }
+
+
+
+下面是创建一个 ROS 2 Foxy 包的完整步骤，包括自定义消息和节点，以接收 `udp_receive_data` 主题的消息并将其转换为自定义的 `vehicle_dynamic` 消息。
+
+### 创建 ROS 2 包
+
+首先，创建一个新的 ROS 2 包：
+
+```bash
+cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_cmake vehicle_dynamic_pkg --dependencies rclcpp std_msgs
+```
+
+### 创建自定义消息
+
+在 `vehicle_dynamic_pkg/msg` 目录下创建一个新的消息文件 `VehicleDynamic.msg`，内容如下：
+
+```plaintext
+float32 steering_angle
+float32 accelerate_y
+float32 yaw_rate
+float32 accelerate_x
+float32 yaw_accelerate
+float32 car_speed
+float32 wheel_speed_fl
+float32 wheel_speed_fr
+float32 wheel_speed_rl
+float32 wheel_speed_rr
+```
+
+### 编辑 `CMakeLists.txt` 文件
+
+编辑 `CMakeLists.txt` 文件，确保包含自定义消息的生成：
+
+```cmake
+cmake_minimum_required(VERSION 3.5)
+project(vehicle_dynamic_pkg)
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/VehicleDynamic.msg"
+)
+
+ament_export_dependencies(rosidl_default_runtime)
+
+add_executable(vehicle_dynamic_node src/vehicle_dynamic_node.cpp)
+ament_target_dependencies(vehicle_dynamic_node rclcpp std_msgs)
+
+install(TARGETS
+  vehicle_dynamic_node
+  DESTINATION lib/${PROJECT_NAME})
+
+ament_package()
+```
+
+### 编辑 `package.xml` 文件
+
+确保 `package.xml` 文件包含以下内容：
+
+```xml
+<package format="2">
+  <name>vehicle_dynamic_pkg</name>
+  <version>0.0.0</version>
+  <description>Vehicle Dynamic Package</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rclcpp</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+```
+
+### 编写节点
+
+在 `vehicle_dynamic_pkg/src` 目录下创建一个新的 C++ 文件 `vehicle_dynamic_node.cpp`，内容如下：
+
+```cpp
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
+#include "vehicle_dynamic_pkg/msg/vehicle_dynamic.hpp"
+
+using std::placeholders::_1;
+
+class VehicleDynamicNode : public rclcpp::Node
+{
+public:
+    VehicleDynamicNode() : Node("vehicle_dynamic_node")
+    {
+        subscription_ = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+            "udp_receive_data", 10, std::bind(&VehicleDynamicNode::topic_callback, this, _1));
+        publisher_ = this->create_publisher<vehicle_dynamic_pkg::msg::VehicleDynamic>("vehicle_dynamic_data", 10);
+    }
+
+private:
+    void topic_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+    {
+        if (msg->data.size() == 10)
+        {
+            auto vehicle_msg = vehicle_dynamic_pkg::msg::VehicleDynamic();
+            vehicle_msg.steering_angle = msg->data[0];
+            vehicle_msg.accelerate_y = msg->data[1];
+            vehicle_msg.yaw_rate = msg->data[2];
+            vehicle_msg.accelerate_x = msg->data[3];
+            vehicle_msg.yaw_accelerate = msg->data[4];
+            vehicle_msg.car_speed = msg->data[5];
+            vehicle_msg.wheel_speed_fl = msg->data[6];
+            vehicle_msg.wheel_speed_fr = msg->data[7];
+            vehicle_msg.wheel_speed_rl = msg->data[8];
+            vehicle_msg.wheel_speed_rr = msg->data[9];
+
+            publisher_->publish(vehicle_msg);
+        }
+        else
+        {
+            RCLCPP_WARN(this->get_logger(), "Received data size is not 10.");
+        }
+    }
+
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr subscription_;
+    rclcpp::Publisher<vehicle_dynamic_pkg::msg::VehicleDynamic>::SharedPtr publisher_;
+};
+
+int main(int argc, char * argv[])
+{
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<VehicleDynamicNode>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
+}
+```
+
+### 编译包
+
+在工作空间根目录下编译包：
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select vehicle_dynamic_pkg
+source install/setup.bash
+```
+
+### 运行节点
+
+运行节点：
+
+```bash
+ros2 run vehicle_dynamic_pkg vehicle_dynamic_node
+```
+
+### 发布测试数据
+
+你可以使用以下 Python 脚本发布 `udp_receive_data` 主题的测试数据：
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32MultiArray
+
+class TestPublisher(Node):
+    def __init__(self):
+        super().__init__('test_publisher')
+        self.publisher_ = self.create_publisher(Float32MultiArray, 'udp_receive_data', 10)
+        self.timer = self.create_timer(1.0, self.timer_callback)
+
+    def timer_callback(self):
+        msg = Float32MultiArray()
+        msg.data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+        self.publisher_.publish(msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = TestPublisher()
+    rclpy.spin(node)
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+运行这个脚本发布测试数据：
+
+```bash
+python3 test_publisher.py
+```
+
+通过这些步骤，你就可以在 ROS 2 Foxy 中创建一个节点，接收 `udp_receive_data` 主题的 `Float32MultiArray` 消息，并将数据转换为自定义的 `vehicle_dynamic` 消息。
