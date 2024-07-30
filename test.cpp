@@ -285,3 +285,59 @@ python3 test_publisher.py
 ```
 
 通过这些步骤，你就可以在 ROS 2 Foxy 中创建一个节点，接收 `udp_receive_data` 主题的 `Float32MultiArray` 消息，并将数据转换为自定义的 `vehicle_dynamic` 消息。
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu
+import tf_transformations
+
+class ImuTransform(Node):
+    def __init__(self):
+        super().__init__('imu_transform')
+        self.subscription = self.create_subscription(
+            Imu,
+            '/camera/imu',
+            self.imu_callback,
+            10)
+        self.publisher = self.create_publisher(Imu, '/imu_enu', 10)
+
+    def imu_callback(self, msg):
+        transformed_imu = Imu()
+        transformed_imu.header = msg.header
+
+        # Transform linear acceleration
+        transformed_imu.linear_acceleration.x = msg.linear_acceleration.y
+        transformed_imu.linear_acceleration.y = msg.linear_acceleration.x
+        transformed_imu.linear_acceleration.z = -msg.linear_acceleration.z
+
+        # Transform angular velocity
+        transformed_imu.angular_velocity.x = msg.angular_velocity.y
+        transformed_imu.angular_velocity.y = msg.angular_velocity.x
+        transformed_imu.angular_velocity.z = -msg.angular_velocity.z
+
+        # Transform orientation (assuming the orientation is quaternion)
+        q = (
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
+        )
+        # Rotate 90 degrees around Z axis
+        rotation = tf_transformations.quaternion_from_euler(0, 0, -1.5708)
+        q_transformed = tf_transformations.quaternion_multiply(rotation, q)
+        transformed_imu.orientation.x = q_transformed[0]
+        transformed_imu.orientation.y = q_transformed[1]
+        transformed_imu.orientation.z = q_transformed[2]
+        transformed_imu.orientation.w = q_transformed[3]
+
+        self.publisher.publish(transformed_imu)
+
+def main(args=None):
+    rclpy.init(args=args)
+    imu_transform = ImuTransform()
+    rclpy.spin(imu_transform)
+    imu_transform.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
