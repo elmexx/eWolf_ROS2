@@ -10,52 +10,41 @@ class MPCController:
         self.max_acceleration = max_acceleration
         self.ref_v = ref_v  # Reference velocity
 
-        # State variables: [x, y, psi, v]
-        self.x = np.zeros(N+1)
-        self.y = np.zeros(N+1)
-        self.psi = np.zeros(N+1)
-        self.v = np.zeros(N+1)
-
-        # Control inputs: [delta, a]
-        self.delta = np.zeros(N)
-        self.a = np.zeros(N)
-
         # Optimization variables
         self.delta_opt = cp.Variable(N)
         self.a_opt = cp.Variable(N)
 
     def optimize(self, waypoints, current_state):
         # Unpack current state
-        x0, y0, psi0, v0 = current_state
+        psi0, v0 = current_state
 
-        # Define constraints and cost function
-        constraints = []
+        # Initialize state variables
+        x = cp.Variable(self.N + 1)
+        y = cp.Variable(self.N + 1)
+        psi = cp.Variable(self.N + 1)
+        v = cp.Variable(self.N + 1)
+
+        # Initial state constraints
+        constraints = [x[0] == 0, y[0] == 0, psi[0] == psi0, v[0] == v0]
         cost = 0
 
         for t in range(self.N):
-            if t == 0:
-                self.x[t] = x0
-                self.y[t] = y0
-                self.psi[t] = psi0
-                self.v[t] = v0
-
-            self.x[t+1] = self.x[t] + self.v[t] * np.cos(self.psi[t]) * self.dt
-            self.y[t+1] = self.y[t] + self.v[t] * np.sin(self.psi[t]) * self.dt
-            self.psi[t+1] = self.psi[t] + (self.v[t] / self.L) * cp.tan(self.delta_opt[t]) * self.dt
-            self.v[t+1] = self.v[t] + self.a_opt[t] * self.dt
-
-            # Add constraints
+            # Vehicle model constraints
             constraints += [
+                x[t+1] == x[t] + v[t] * cp.cos(psi[t]) * self.dt,
+                y[t+1] == y[t] + v[t] * cp.sin(psi[t]) * self.dt,
+                psi[t+1] == psi[t] + (v[t] / self.L) * cp.tan(self.delta_opt[t]) * self.dt,
+                v[t+1] == v[t] + self.a_opt[t] * self.dt,
                 self.delta_opt[t] <= self.max_steering_angle,
                 self.delta_opt[t] >= -self.max_steering_angle,
                 self.a_opt[t] <= self.max_acceleration,
                 self.a_opt[t] >= -self.max_acceleration
             ]
 
-            # Cost function
-            cost += cp.norm(self.x[t] - waypoints[t][0])**2
-            cost += cp.norm(self.y[t] - waypoints[t][1])**2
-            cost += cp.norm(self.v[t] - self.ref_v)**2
+            # Cost function: track the middle lane and reference velocity
+            cost += cp.norm(x[t+1] - waypoints[t, 0])**2
+            cost += cp.norm(y[t+1] - waypoints[t, 1])**2
+            cost += cp.norm(v[t] - self.ref_v)**2
             cost += cp.norm(self.delta_opt[t])**2
             cost += cp.norm(self.a_opt[t])**2
 
@@ -64,10 +53,10 @@ class MPCController:
         problem.solve()
 
         # Extract optimized control inputs
-        self.delta = self.delta_opt.value
-        self.a = self.a_opt.value
+        steering_angle = self.delta_opt.value[0]
+        acceleration = self.a_opt.value[0]
 
-        return self.delta[0], self.a[0]
+        return steering_angle, acceleration
 
 # Example usage
 N = 10  # Prediction horizon
@@ -79,13 +68,23 @@ ref_v = 15.0  # Reference velocity in m/s
 
 controller = MPCController(N, dt, L, max_steering_angle, max_acceleration, ref_v)
 
-# Waypoints representing the desired path in global coordinates
-waypoints = [(10, 2), (20, 3), (30, 4), (40, 4), (50, 4), (60, 4), (70, 4), (80, 4), (90, 4), (100, 4)]
+# Example waypoints representing the middle lane in vehicle coordinates
+waypoints = np.array([(i, 0.1 * i) for i in range(60)])
 
-# Current state of the vehicle in global coordinates [x, y, psi, v]
-current_state = (0, 0, 0, 10)
+# Initial state of the vehicle [psi, v]
+psi = 0  # Example value: psi = 0 radians
+v = 10  # Example value: v = 10 m/s
 
-# Compute control inputs using MPC
-steering_angle, acceleration = controller.optimize(waypoints, current_state)
-print(f"Computed steering angle: {steering_angle} radians")
-print(f"Computed acceleration: {acceleration} m/s^2")
+# Simulate for a few steps
+for t in range(50):
+    current_state = (psi, v)
+
+    # Compute control inputs using MPC
+    steering_angle, acceleration = controller.optimize(waypoints, current_state)
+    print(f"Time step {t}:")
+    print(f"Computed steering angle: {steering_angle} radians")
+    print(f"Computed acceleration: {acceleration} m/s^2")
+
+    # Update vehicle state for next iteration
+    psi += (v / L) * np.tan(steering_angle) * dt
+    v += acceleration * dt
