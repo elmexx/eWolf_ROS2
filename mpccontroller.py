@@ -133,23 +133,17 @@ class MPCController:
             self.opti.subject_to(self.a[t] >= -self.max_acceleration)
 
             # Calculate the position of the vehicle in vehicle coordinates
-            x = ca.MX.sym('x')
-            y = ca.MX.sym('y')
-            x = self.v[t] * ca.cos(self.psi[t]) * self.dt
-            y = self.v[t] * ca.sin(self.psi[t]) * self.dt
+            x = ca.MX(self.v[t] * ca.cos(self.psi[t]) * self.dt)
+            y = ca.MX(self.v[t] * ca.sin(self.psi[t]) * self.dt)
 
             # Add to cost function
             cost += (x - waypoints[t, 0])**2 + (y - waypoints[t, 1])**2
             cost += (self.v[t] - self.ref_v)**2
             cost += self.delta[t]**2 + self.a[t]**2
 
-        # Add constraints to enforce final state
-        self.opti.subject_to(self.psi[self.N] == self.psi[self.N-1] + (self.v[self.N-1] / self.L) * ca.tan(self.delta[self.N-1]) * self.dt)
-        self.opti.subject_to(self.v[self.N] == self.v[self.N-1] + self.a[self.N-1] * self.dt)
-
         # Define problem and solve
         self.opti.minimize(cost)
-        opts = {"ipopt.print_level": 0, "print_time": 0}
+        opts = {"ipopt.print_level": 0, "print_time": 0, "ipopt.max_iter": 100}
         self.opti.solver("ipopt", opts)
         sol = self.opti.solve()
 
@@ -177,16 +171,19 @@ psi = 0  # Example value: psi = 0 radians
 v = 10  # Example value: v = 10 m/s
 
 # Simulate for a few steps
-for t in range(50):
+for t in range(10):
     current_state = (psi, v)
 
     # Compute control inputs using MPC
-    steering_angle, acceleration = controller.optimize(waypoints, current_state)
-    print(f"Time step {t}:")
-    print(f"Computed steering angle: {steering_angle} radians")
-    print(f"Computed acceleration: {acceleration} m/s^2")
+    try:
+        steering_angle, acceleration = controller.optimize(waypoints, current_state)
+        print(f"Time step {t}:")
+        print(f"Computed steering angle: {steering_angle} radians")
+        print(f"Computed acceleration: {acceleration} m/s^2")
 
-    # Update vehicle state for next iteration
-    psi += (v / L) * np.tan(steering_angle) * dt
-    v += acceleration * dt
-
+        # Update vehicle state for next iteration
+        psi += (v / L) * np.tan(steering_angle) * dt
+        v += acceleration * dt
+    except Exception as e:
+        print(f"Optimization failed at time step {t} with error: {e}")
+        break
