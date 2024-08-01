@@ -187,3 +187,88 @@ for t in range(10):
     except Exception as e:
         print(f"Optimization failed at time step {t} with error: {e}")
         break
+
+import numpy as np
+from scipy.optimize import minimize
+
+class MPCController:
+    def __init__(self, N, dt, L, max_steering_angle, max_acceleration, ref_v):
+        self.N = N  # Prediction horizon
+        self.dt = dt  # Time step
+        self.L = L  # Wheelbase
+        self.max_steering_angle = max_steering_angle
+        self.max_acceleration = max_acceleration
+        self.ref_v = ref_v  # Reference velocity
+
+    def vehicle_model(self, state, control, dt):
+        x, y, psi, v = state
+        delta, a = control
+        x_next = x + v * np.cos(psi) * dt
+        y_next = y + v * np.sin(psi) * dt
+        psi_next = psi + (v / self.L) * np.tan(delta) * dt
+        v_next = v + a * dt
+        return np.array([x_next, y_next, psi_next, v_next])
+
+    def optimize(self, waypoints, current_state):
+        # Objective function to minimize
+        def objective(U):
+            U = U.reshape((self.N, 2))
+            state = np.array(current_state)
+            cost = 0
+            for t in range(self.N):
+                state = self.vehicle_model(state, U[t], self.dt)
+                x, y, psi, v = state
+                cost += (x - waypoints[t, 0])**2 + (y - waypoints[t, 1])**2
+                cost += (v - self.ref_v)**2
+                cost += U[t, 0]**2 + U[t, 1]**2
+            return cost
+
+        # Initial guess for control inputs
+        U0 = np.zeros((self.N, 2)).flatten()
+
+        # Bounds for control inputs
+        bounds = []
+        for t in range(self.N):
+            bounds.append((-self.max_steering_angle, self.max_steering_angle))  # Bounds for delta
+            bounds.append((-self.max_acceleration, self.max_acceleration))      # Bounds for a
+
+        # Solve the optimization problem
+        result = minimize(objective, U0, bounds=bounds, method='SLSQP')
+
+        if result.success:
+            optimal_U = result.x.reshape((self.N, 2))
+            steering_angle, acceleration = optimal_U[0]
+            return steering_angle, acceleration
+        else:
+            raise ValueError("Optimization failed")
+
+# Example usage
+N = 10  # Prediction horizon
+dt = 0.1  # Time step
+L = 2.5  # Wheelbase of the vehicle in meters
+max_steering_angle = 0.26  # Maximum steering angle in radians
+max_acceleration = 1.0  # Maximum acceleration in m/s^2
+ref_v = 15.0  # Reference velocity in m/s
+
+controller = MPCController(N, dt, L, max_steering_angle, max_acceleration, ref_v)
+
+# Example waypoints representing the middle lane in vehicle coordinates
+waypoints = np.array([(i, 0.1 * i) for i in range(N)])  # Adjust length to match prediction horizon
+
+# Initial state of the vehicle [x, y, psi, v]
+current_state = [0, 0, 0, 10]  # Example values: x = 0, y = 0, psi = 0 radians, v = 10 m/s
+
+# Simulate for a few steps
+for t in range(10):
+    try:
+        # Compute control inputs using MPC
+        steering_angle, acceleration = controller.optimize(waypoints, current_state)
+        print(f"Time step {t}:")
+        print(f"Computed steering angle: {steering_angle} radians")
+        print(f"Computed acceleration: {acceleration} m/s^2")
+
+        # Update vehicle state for next iteration
+        current_state = controller.vehicle_model(current_state, [steering_angle, acceleration], dt)
+    except ValueError as e:
+        print(f"Optimization failed at time step {t} with error: {e}")
+        break
