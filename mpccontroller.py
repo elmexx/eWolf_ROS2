@@ -143,6 +143,10 @@ class MPCController:
             cost += (self.v[t] - self.ref_v)**2
             cost += self.delta[t]**2 + self.a[t]**2
 
+        # Add constraints to enforce final state
+        self.opti.subject_to(self.psi[self.N] == self.psi[self.N-1] + (self.v[self.N-1] / self.L) * ca.tan(self.delta[self.N-1]) * self.dt)
+        self.opti.subject_to(self.v[self.N] == self.v[self.N-1] + self.a[self.N-1] * self.dt)
+
         # Define problem and solve
         self.opti.minimize(cost)
         opts = {"ipopt.print_level": 0, "print_time": 0}
@@ -166,7 +170,7 @@ ref_v = 15.0  # Reference velocity in m/s
 controller = MPCController(N, dt, L, max_steering_angle, max_acceleration, ref_v)
 
 # Example waypoints representing the middle lane in vehicle coordinates
-waypoints = np.array([(i, 0.1 * i) for i in range(60)])
+waypoints = np.array([(i, 0.1 * i) for i in range(N + 1)])  # Adjust length to match prediction horizon
 
 # Initial state of the vehicle [psi, v]
 psi = 0  # Example value: psi = 0 radians
@@ -185,3 +189,4 @@ for t in range(50):
     # Update vehicle state for next iteration
     psi += (v / L) * np.tan(steering_angle) * dt
     v += acceleration * dt
+
