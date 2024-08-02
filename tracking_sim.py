@@ -237,16 +237,23 @@ class MPCController:
         v_next = v + a * dt
         return np.array([x_next, y_next, psi_next, v_next])
 
-    def optimize(self, waypoints, current_state):
+    def nearest_point_index(self, path, x, y):
+        distances = [np.hypot(point[0] - x, point[1] - y) for point in path]
+        nearest_index = np.argmin(distances)
+        return nearest_index
+
+    def optimize(self, path, current_state):
         def objective(U):
             U = U.reshape((self.N, 2))
-            state = np.array([0, 0, current_state[2], current_state[3]])  # x, y are always 0 in vehicle coordinates
+            state = np.array(current_state)
             cost = 0
             for t in range(self.N):
                 state = self.vehicle_model(state, U[t], self.dt)
                 x, y, psi, v = state
-                cost += 10 * ((x - waypoints[t, 0]) ** 2 + (y - waypoints[t, 1]) ** 2)  # Increase weight on path error
-                cost += (v - self.ref_v) ** 2  # Minimize velocity error
+                nearest_index = self.nearest_point_index(path, x, y)
+                nearest_point = path[nearest_index]
+                cost += 10 * ((x - nearest_point[0]) ** 2 + (y - nearest_point[1]) ** 2)  # Increase weight on path error
+                cost += 10 * (v - self.ref_v) ** 2  # Increase weight on velocity error
                 cost += 0.1 * U[t, 0] ** 2 + 0.1 * U[t, 1] ** 2  # Decrease weight on control effort
             return cost
 
@@ -279,7 +286,7 @@ target_speed = 30 / 3.6
 
 # Initialize controllers
 pure_pursuit = PurePursuitController(lookahead_distance, max_steering_angle)
-mpc_controller = MPCController(N=10, dt=dt, L=WB, max_steering_angle=max_steering_angle, max_acceleration=1.0, ref_v=target_speed)
+mpc_controller = MPCController(N=20, dt=dt, L=WB, max_steering_angle=max_steering_angle, max_acceleration=0.5, ref_v=target_speed)
 
 # Simulation loop for Pure Pursuit and MPC
 vehicle_pp = Vehicle()
@@ -288,7 +295,7 @@ trajectory_pure_pursuit = []
 trajectory_mpc = []
 lookahead_points = []
 
-current_state = [0, 0, 0, 10]  # Initial state for MPC
+current_state_mpc = [0, 0, 0, target_speed]  # Initial state for MPC with target speed
 
 for _ in range(num_steps):
     # Pure Pursuit control
@@ -299,11 +306,10 @@ for _ in range(num_steps):
     lookahead_points.append(lookahead_point)
 
     # MPC control
-    ai_mpc = proportional_control(target_speed, vehicle_mpc.v)
-    mid_lane = [(point[0] - vehicle_mpc.x, point[1] - vehicle_mpc.y) for point in path]  # Transform to vehicle coordinates
     try:
-        control_angle_mpc, acc_control_mpc = mpc_controller.optimize(mid_lane, [vehicle_mpc.x, vehicle_mpc.y, vehicle_mpc.theta, vehicle_mpc.v])
+        control_angle_mpc, acc_control_mpc = mpc_controller.optimize(path, current_state_mpc)  # Use global path for MPC
         vehicle_mpc.update(acc_control_mpc, control_angle_mpc, dt)
+        current_state_mpc = [vehicle_mpc.x, vehicle_mpc.y, vehicle_mpc.theta, vehicle_mpc.v]
         trajectory_mpc.append(vehicle_mpc.get_pose())
     except ValueError as e:
         print(f"Optimization failed at time step {_} with error: {e}")
@@ -316,6 +322,11 @@ plt.plot([pose[0] for pose in trajectory_pure_pursuit], [pose[1] for pose in tra
 plt.plot([pose[0] for pose in trajectory_mpc], [pose[1] for pose in trajectory_mpc], 'b', label='MPC Trajectory')
 plt.xlabel('X')
 plt.ylabel('Y')
+plt.title('Trajectory Comparison: Pure Pursuit vs MPC')
+plt.legend()
+plt.grid(True)
+plt.show()
+
 plt.title('Trajectory Comparison: Pure Pursuit vs MPC')
 plt.legend()
 plt.grid(True)
