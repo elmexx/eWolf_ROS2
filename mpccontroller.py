@@ -213,14 +213,14 @@ class MPCController:
         # Objective function to minimize
         def objective(U):
             U = U.reshape((self.N, 2))
-            state = np.array(current_state)
+            state = np.array([0, 0, current_state[2], current_state[3]])  # x, y are always 0 in vehicle coordinates
             cost = 0
             for t in range(self.N):
                 state = self.vehicle_model(state, U[t], self.dt)
                 x, y, psi, v = state
-                cost += (x - waypoints[t, 0])**2 + (y - waypoints[t, 1])**2
-                cost += (v - self.ref_v)**2
-                cost += U[t, 0]**2 + U[t, 1]**2
+                cost += (x - waypoints[t, 0])**2 + (y - waypoints[t, 1])**2  # Minimize path error
+                cost += (v - self.ref_v)**2  # Minimize velocity error
+                cost += U[t, 0]**2 + U[t, 1]**2  # Minimize control effort
             return cost
 
         # Initial guess for control inputs
@@ -240,7 +240,7 @@ class MPCController:
             steering_angle, acceleration = optimal_U[0]
             return steering_angle, acceleration
         else:
-            raise ValueError("Optimization failed")
+            raise ValueError(f"Optimization failed: {result.message}")
 
 # Example usage
 N = 10  # Prediction horizon
@@ -252,14 +252,14 @@ ref_v = 15.0  # Reference velocity in m/s
 
 controller = MPCController(N, dt, L, max_steering_angle, max_acceleration, ref_v)
 
-# Example waypoints representing the middle lane in vehicle coordinates
-waypoints = np.array([(i, 0.1 * i) for i in range(N)])  # Adjust length to match prediction horizon
-
 # Initial state of the vehicle [x, y, psi, v]
 current_state = [0, 0, 0, 10]  # Example values: x = 0, y = 0, psi = 0 radians, v = 10 m/s
 
 # Simulate for a few steps
 for t in range(10):
+    # Update waypoints (simulating the update from camera recognition)
+    waypoints = np.array([(i, 0.1 * i) for i in range(N)])  # Example waypoints for the current frame
+
     try:
         # Compute control inputs using MPC
         steering_angle, acceleration = controller.optimize(waypoints, current_state)
@@ -269,6 +269,7 @@ for t in range(10):
 
         # Update vehicle state for next iteration
         current_state = controller.vehicle_model(current_state, [steering_angle, acceleration], dt)
+        current_state[0], current_state[1] = 0, 0  # Reset x and y to 0 in vehicle coordinates
     except ValueError as e:
         print(f"Optimization failed at time step {t} with error: {e}")
         break
