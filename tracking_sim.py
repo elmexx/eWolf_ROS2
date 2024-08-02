@@ -144,6 +144,7 @@ plt.plot(*zip(*path))
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
+from scipy.interpolate import make_interp_spline
 
 # Constants
 WB = 2.9
@@ -158,8 +159,8 @@ class PurePursuitController:
         dx = point[0] - vehicle.x
         dy = point[1] - vehicle.y
 
-        local_x = dx*np.cos(vehicle.theta) + dy*np.sin(vehicle.theta)
-        local_y = -dx*np.sin(vehicle.theta) + dy*np.cos(vehicle.theta)
+        local_x = dx * np.cos(vehicle.theta) + dy * np.sin(vehicle.theta)
+        local_y = -dx * np.sin(vehicle.theta) + dy * np.cos(vehicle.theta)
 
         return local_x, local_y
 
@@ -167,8 +168,8 @@ class PurePursuitController:
         dx = point[0] - vehicle.x
         dy = point[1] - vehicle.y
 
-        local_x = dx*np.cos(vehicle.theta) + dy*np.sin(vehicle.theta)
-        local_y = -dx*np.sin(vehicle.theta) + dy*np.cos(vehicle.theta)
+        local_x = dx * np.cos(vehicle.theta) + dy * np.sin(vehicle.theta)
+        local_y = -dx * np.sin(vehicle.theta) + dy * np.cos(vehicle.theta)
 
         return local_x > 0
 
@@ -176,7 +177,7 @@ class PurePursuitController:
         lookahead_point = None
 
         for point in path:
-            distance = np.hypot(point[0]-vehicle.x, point[1]-vehicle.y)
+            distance = np.hypot(point[0] - vehicle.x, point[1] - vehicle.y)
             if distance > self.lookahead_distance and self.is_point_front(vehicle, point):
                 lookahead_point = point
                 break
@@ -188,7 +189,7 @@ class PurePursuitController:
         dy = lookahead_point[1] - vehicle.y
 
         angle_to_lookahead = np.arctan2(dy, dx) - vehicle.theta
-        steering_angle = 2*np.sin(angle_to_lookahead)/self.lookahead_distance
+        steering_angle = 2 * np.sin(angle_to_lookahead) / self.lookahead_distance
         steering_angle = max(min(steering_angle, self.max_steering_angle), -self.max_steering_angle)
 
         return steering_angle, lookahead_point
@@ -199,22 +200,22 @@ class Vehicle:
         self.y = y
         self.theta = theta
         self.v = v
-        self.rear_x = self.x - ((WB/2)*np.cos(self.theta))
-        self.rear_y = self.y - ((WB/2)*np.sin(self.theta))
+        self.rear_x = self.x - ((WB / 2) * np.cos(self.theta))
+        self.rear_y = self.y - ((WB / 2) * np.sin(self.theta))
 
     def update(self, a, steering_angle, dt):
-        self.x += self.v*np.cos(self.theta)*dt
-        self.y += self.v*np.sin(self.theta)*dt
-        self.theta += self.v/WB*np.tan(steering_angle)*dt
-        self.v += a*dt
-        self.rear_x = self.x - ((WB/2)*np.cos(self.theta))
-        self.rear_y = self.y - ((WB/2)*np.sin(self.theta))
+        self.x += self.v * np.cos(self.theta) * dt
+        self.y += self.v * np.sin(self.theta) * dt
+        self.theta += self.v / WB * np.tan(steering_angle) * dt
+        self.v += a * dt
+        self.rear_x = self.x - ((WB / 2) * np.cos(self.theta))
+        self.rear_y = self.y - ((WB / 2) * np.sin(self.theta))
 
     def get_pose(self):
         return self.x, self.y, self.theta
 
 def proportional_control(target, current):
-    a = Kp*(target - current)
+    a = Kp * (target - current)
     return a
 
 # MPC Controller class
@@ -244,16 +245,16 @@ class MPCController:
             for t in range(self.N):
                 state = self.vehicle_model(state, U[t], self.dt)
                 x, y, psi, v = state
-                cost += 10 * ((x - waypoints[t, 0])**2 + (y - waypoints[t, 1])**2)  # Increase weight on path error
-                cost += (v - self.ref_v)**2  # Minimize velocity error
-                cost += 0.1 * U[t, 0]**2 + 0.1 * U[t, 1]**2  # Decrease weight on control effort
+                cost += 10 * ((x - waypoints[t, 0]) ** 2 + (y - waypoints[t, 1]) ** 2)  # Increase weight on path error
+                cost += (v - self.ref_v) ** 2  # Minimize velocity error
+                cost += 0.1 * U[t, 0] ** 2 + 0.1 * U[t, 1] ** 2  # Decrease weight on control effort
             return cost
 
         U0 = np.zeros((self.N, 2)).flatten()
         bounds = []
         for t in range(self.N):
             bounds.append((-self.max_steering_angle, self.max_steering_angle))  # Bounds for delta
-            bounds.append((-self.max_acceleration, self.max_acceleration))      # Bounds for a
+            bounds.append((-self.max_acceleration, self.max_acceleration))  # Bounds for a
 
         result = minimize(objective, U0, bounds=bounds, method='SLSQP', options={'ftol': 1e-6, 'disp': True})
         if result.success:
@@ -266,7 +267,7 @@ class MPCController:
 # Set up the simulation
 control_points = np.array([[0, 0], [50, 5], [100, 0]])
 x_new = np.linspace(0, 100, 500)
-spl = make_interp_spline(control_points[:,0], control_points[:,1], k=2)
+spl = make_interp_spline(control_points[:, 0], control_points[:, 1], k=2)
 y_new = spl(x_new)
 path = list(zip(x_new, y_new))
 velocity = 5.0
@@ -281,7 +282,8 @@ pure_pursuit = PurePursuitController(lookahead_distance, max_steering_angle)
 mpc_controller = MPCController(N=10, dt=dt, L=WB, max_steering_angle=max_steering_angle, max_acceleration=1.0, ref_v=target_speed)
 
 # Simulation loop for Pure Pursuit and MPC
-vehicle = Vehicle()
+vehicle_pp = Vehicle()
+vehicle_mpc = Vehicle()
 trajectory_pure_pursuit = []
 trajectory_mpc = []
 lookahead_points = []
@@ -289,19 +291,20 @@ lookahead_points = []
 current_state = [0, 0, 0, 10]  # Initial state for MPC
 
 for _ in range(num_steps):
-    ai = proportional_control(target_speed, vehicle.v)
-    control_angle_pp, lookahead_point = pure_pursuit.calculate_control(vehicle, path)
-    vehicle.update(ai, control_angle_pp, dt)
-    trajectory_pure_pursuit.append(vehicle.get_pose())
+    # Pure Pursuit control
+    ai_pp = proportional_control(target_speed, vehicle_pp.v)
+    control_angle_pp, lookahead_point = pure_pursuit.calculate_control(vehicle_pp, path)
+    vehicle_pp.update(ai_pp, control_angle_pp, dt)
+    trajectory_pure_pursuit.append(vehicle_pp.get_pose())
     lookahead_points.append(lookahead_point)
 
-    # For MPC
-    mid_lane = [(point[0] - vehicle.x, point[1] - vehicle.y) for point in path]  # Transform to vehicle coordinates
+    # MPC control
+    ai_mpc = proportional_control(target_speed, vehicle_mpc.v)
+    mid_lane = [(point[0] - vehicle_mpc.x, point[1] - vehicle_mpc.y) for point in path]  # Transform to vehicle coordinates
     try:
-        control_angle_mpc, acc_control_mpc = mpc_controller.optimize(mid_lane, current_state)
-        current_state = mpc_controller.vehicle_model(current_state, [control_angle_mpc, acc_control_mpc], dt)
-        current_state[0], current_state[1] = 0, 0  # Reset x and y to 0 in vehicle coordinates
-        trajectory_mpc.append((current_state[0], current_state[1], current_state[2]))
+        control_angle_mpc, acc_control_mpc = mpc_controller.optimize(mid_lane, [vehicle_mpc.x, vehicle_mpc.y, vehicle_mpc.theta, vehicle_mpc.v])
+        vehicle_mpc.update(acc_control_mpc, control_angle_mpc, dt)
+        trajectory_mpc.append(vehicle_mpc.get_pose())
     except ValueError as e:
         print(f"Optimization failed at time step {_} with error: {e}")
         break
