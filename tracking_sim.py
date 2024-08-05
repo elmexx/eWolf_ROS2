@@ -331,3 +331,172 @@ plt.title('Trajectory Comparison: Pure Pursuit vs MPC')
 plt.legend()
 plt.grid(True)
 plt.show()
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import make_interp_spline
+from numba import njit
+import time
+import cyipopt
+
+# Constants
+WB = 2.9
+Kp = 1.0
+
+class Vehicle:
+    def __init__(self, x=0, y=0, theta=0, v=0):
+        self.x = x
+        self.y = y
+        self.theta = theta
+        self.v = v
+        self.rear_x = self.x - ((WB / 2) * np.cos(self.theta))
+        self.rear_y = self.y - ((WB / 2) * np.sin(self.theta))
+
+    def update(self, a, steering_angle, dt):
+        self.x += self.v * np.cos(self.theta) * dt
+        self.y += self.v * np.sin(self.theta) * dt
+        self.theta += self.v / WB * np.tan(steering_angle) * dt
+        self.v += a * dt
+        self.rear_x = self.x - ((WB / 2) * np.cos(self.theta))
+        self.rear_y = self.y - ((WB / 2) * np.sin(self.theta))
+
+    def get_pose(self):
+        return self.x, self.y, self.theta
+
+@njit
+def vehicle_model(state, control, dt, L):
+    x, y, psi, v = state
+    delta, a = control
+    x_next = x + v * np.cos(psi) * dt
+    y_next = y + v * np.sin(psi) * dt
+    psi_next = psi + (v / L) * np.tan(delta) * dt
+    v_next = v + a * dt
+    return np.array([x_next, y_next, psi_next, v_next])
+
+@njit
+def nearest_point_index(path, x, y, theta):
+    distances = np.hypot(path[:, 0] - x, path[:, 1] - y)
+    nearest_index = np.argmin(distances)
+    
+    # Ensure the nearest point is in front of the vehicle
+    for i in range(nearest_index, len(path)):
+        dx = path[i, 0] - x
+        dy = path[i, 1] - y
+        angle_to_point = np.arctan2(dy, dx) - theta
+        if np.cos(angle_to_point) > 0:
+            nearest_index = i
+            break
+            
+    return nearest_index
+
+@njit
+def objective(U_flat, path, current_state, N, dt, L, ref_v):
+    U = U_flat.reshape((N, 2))
+    state = current_state.copy()
+    cost = 0
+    for t in range(N):
+        state = vehicle_model(state, U[t], dt, L)
+        x, y, psi, v = state
+        nearest_index = nearest_point_index(path, x, y, psi)
+        nearest_point = path[nearest_index]
+        cost += 10 * ((x - nearest_point[0]) ** 2 + (y - nearest_point[1]) ** 2)  # Increase weight on path error
+        cost += 10 * (v - ref_v) ** 2  # Increase weight on velocity error
+        cost += 0.1 * U[t, 0] ** 2 + 0.1 * U[t, 1] ** 2  # Decrease weight on control effort
+    return cost
+
+class MPCController:
+    def __init__(self, N, dt, L, max_steering_angle, max_acceleration, ref_v):
+        self.N = N  # Prediction horizon
+        self.dt = dt  # Time step
+        self.L = L  # Wheelbase
+        self.max_steering_angle = max_steering_angle
+        self.max_acceleration = max_acceleration
+        self.ref_v = ref_v  # Reference velocity
+
+    def optimize(self, path, current_state, prev_U):
+        N = self.N
+        dt = self.dt
+        L = self.L
+        ref_v = self.ref_v
+
+        # Bounds
+        lb = np.array([-self.max_steering_angle, -self.max_acceleration] * N)
+        ub = np.array([self.max_steering_angle, self.max_acceleration] * N)
+
+        # Initial guess
+        U0 = prev_U.flatten() if prev_U is not None else np.zeros((N, 2)).flatten()
+
+        start_time = time.time()
+
+        def objective_ipopt(U_flat):
+            return objective(U_flat, path, current_state, N, dt, L, ref_v)
+
+        # IPOPT
+        nlp = cyipopt.Problem(
+            n=len(U0),
+            m=0,
+            problem_obj=cyipopt.intermediate_callback,
+            lb=lb,
+            ub=ub,
+            cl=[],
+            cu=[],
+        )
+
+        nlp.add_option('print_level', 0)
+        nlp.add_option('tol', 1e-6)
+        nlp.add_option('max_iter', 100)
+
+        solution, info = nlp.solve(U0)
+
+        end_time = time.time()
+
+        print(f"Optimization time: {end_time - start_time:.4f} seconds")
+
+        if info['status'] == 0:
+            optimal_U = solution.reshape((N, 2))
+            steering_angle, acceleration = optimal_U[0]
+            return steering_angle, acceleration, optimal_U
+        else:
+            raise ValueError(f"Optimization failed: {info['status_msg']}")
+
+# Set up the simulation
+control_points = np.array([[0, 0], [50, 5], [100, 0]])
+x_new = np.linspace(0, 100, 500)
+spl = make_interp_spline(control_points[:, 0], control_points[:, 1], k=2)
+y_new = spl(x_new)
+path = np.array(list(zip(x_new, y_new)))  # Convert path to numpy array for numba compatibility
+max_steering_angle = 0.26
+dt = 0.1
+num_steps = 300
+target_speed = 30 / 3.6
+
+# Initialize MPC controller and vehicle
+mpc_controller = MPCController(N=10, dt=dt, L=WB, max_steering_angle=max_steering_angle, max_acceleration=0.5, ref_v=target_speed)
+vehicle_mpc = Vehicle()
+trajectory_mpc = []
+
+current_state_mpc = np.array([0, 0, 0, target_speed])  # Initial state for MPC with target speed
+prev_U = None
+
+for step in range(num_steps):
+    try:
+        if step % 5 == 0:  # Reduce optimization frequency
+            control_angle_mpc, acc_control_mpc, prev_U = mpc_controller.optimize(path, current_state_mpc, prev_U)  # Use global path for MPC
+        vehicle_mpc.update(acc_control_mpc, control_angle_mpc, dt)
+        current_state_mpc = np.array([vehicle_mpc.x, vehicle_mpc.y, vehicle_mpc.theta, vehicle_mpc.v])
+        trajectory_mpc.append(vehicle_mpc.get_pose())
+    except ValueError as e:
+        print(f"Optimization failed at time step {step} with error: {e}")
+        break
+
+# Plotting the results
+plt.figure(figsize=(10, 6))
+plt.plot(path[:, 0], path[:, 1], label='Path')
+plt.plot([pose[0] for pose in trajectory_mpc], [pose[1] for pose in trajectory_mpc], 'b', label='MPC Trajectory')
+plt.xlabel('X')
+plt.ylabel('Y')
+plt.title('MPC Trajectory Following Path')
+plt.legend()
+plt.grid(True)
+plt.show()
