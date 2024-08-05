@@ -337,8 +337,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import make_interp_spline
 from numba import njit
+import casadi as ca
 import time
-import cyipopt
 
 # Constants
 WB = 2.9
@@ -365,16 +365,6 @@ class Vehicle:
         return self.x, self.y, self.theta
 
 @njit
-def vehicle_model(state, control, dt, L):
-    x, y, psi, v = state
-    delta, a = control
-    x_next = x + v * np.cos(psi) * dt
-    y_next = y + v * np.sin(psi) * dt
-    psi_next = psi + (v / L) * np.tan(delta) * dt
-    v_next = v + a * dt
-    return np.array([x_next, y_next, psi_next, v_next])
-
-@njit
 def nearest_point_index(path, x, y, theta):
     distances = np.hypot(path[:, 0] - x, path[:, 1] - y)
     nearest_index = np.argmin(distances)
@@ -390,21 +380,6 @@ def nearest_point_index(path, x, y, theta):
             
     return nearest_index
 
-@njit
-def objective(U_flat, path, current_state, N, dt, L, ref_v):
-    U = U_flat.reshape((N, 2))
-    state = current_state.copy()
-    cost = 0
-    for t in range(N):
-        state = vehicle_model(state, U[t], dt, L)
-        x, y, psi, v = state
-        nearest_index = nearest_point_index(path, x, y, psi)
-        nearest_point = path[nearest_index]
-        cost += 10 * ((x - nearest_point[0]) ** 2 + (y - nearest_point[1]) ** 2)  # Increase weight on path error
-        cost += 10 * (v - ref_v) ** 2  # Increase weight on velocity error
-        cost += 0.1 * U[t, 0] ** 2 + 0.1 * U[t, 1] ** 2  # Decrease weight on control effort
-    return cost
-
 class MPCController:
     def __init__(self, N, dt, L, max_steering_angle, max_acceleration, ref_v):
         self.N = N  # Prediction horizon
@@ -414,51 +389,104 @@ class MPCController:
         self.max_acceleration = max_acceleration
         self.ref_v = ref_v  # Reference velocity
 
-    def optimize(self, path, current_state, prev_U):
+        # Define model
+        x = ca.SX.sym('x')
+        y = ca.SX.sym('y')
+        psi = ca.SX.sym('psi')
+        v = ca.SX.sym('v')
+        state = ca.vertcat(x, y, psi, v)
+
+        delta = ca.SX.sym('delta')
+        a = ca.SX.sym('a')
+        control = ca.vertcat(delta, a)
+
+        x_next = x + v * ca.cos(psi) * dt
+        y_next = y + v * ca.sin(psi) * dt
+        psi_next = psi + (v / L) * ca.tan(delta) * dt
+        v_next = v + a * dt
+        state_next = ca.vertcat(x_next, y_next, psi_next, v_next)
+
+        self.model = ca.Function('model', [state, control], [state_next])
+
+        # Define optimizer
+        U = ca.SX.sym('U', N, 2)
+        X = ca.SX.sym('X', N+1, 4)
+        P = ca.SX.sym('P', 4 + 2 * N)
+
+        Q = ca.diagcat(10, 10, 0, 10)
+        R = ca.diagcat(0.1, 0.1)
+
+        obj = 0
+        g = []
+
+        for k in range(N):
+            st = X[k, :]
+            con = U[k, :]
+            ref = P[4 + 2*k: 6 + 2*k]
+            obj = obj + ca.mtimes([(st - ref).T, Q, (st - ref)]) + ca.mtimes([con.T, R, con])
+            st_next = X[k+1, :]
+            f_value = self.model(st, con)
+            g = ca.vertcat(g, st_next - f_value)
+
+        opt_variables = ca.vertcat(U.reshape((-1, 1)), X.reshape((-1, 1)))
+
+        nlp_prob = {
+            'f': obj,
+            'x': opt_variables,
+            'g': g,
+            'p': P
+        }
+
+        opts = {
+            'ipopt.max_iter': 100,
+            'ipopt.print_level': 0,
+            'print_time': 0,
+            'ipopt.acceptable_tol': 1e-6,
+            'ipopt.acceptable_obj_change_tol': 1e-6
+        }
+
+        self.solver = ca.nlpsol('solver', 'ipopt', nlp_prob, opts)
+
+    def optimize(self, path, current_state):
         N = self.N
         dt = self.dt
         L = self.L
         ref_v = self.ref_v
 
-        # Bounds
-        lb = np.array([-self.max_steering_angle, -self.max_acceleration] * N)
-        ub = np.array([self.max_steering_angle, self.max_acceleration] * N)
+        ref_path = np.zeros((N, 2))
+        current_pose = current_state[:2]
+        current_theta = current_state[2]
 
-        # Initial guess
-        U0 = prev_U.flatten() if prev_U is not None else np.zeros((N, 2)).flatten()
+        for k in range(N):
+            index = nearest_point_index(path, current_pose[0], current_pose[1], current_theta)
+            ref_path[k, :] = path[index, :]
+            current_pose = ref_path[k, :]
 
-        start_time = time.time()
+        c_p = np.concatenate((current_state, ref_path.flatten()))
 
-        def objective_ipopt(U_flat):
-            return objective(U_flat, path, current_state, N, dt, L, ref_v)
+        lbg = np.zeros((N * 4, 1))
+        ubg = np.zeros((N * 4, 1))
 
-        # IPOPT
-        nlp = cyipopt.Problem(
-            n=len(U0),
-            m=0,
-            problem_obj=cyipopt.intermediate_callback,
-            lb=lb,
-            ub=ub,
-            cl=[],
-            cu=[],
+        lbx = np.concatenate([np.tile([-self.max_steering_angle, -self.max_acceleration], N), np.tile([-np.inf, -np.inf, -np.inf, -np.inf], N+1)])
+        ubx = np.concatenate([np.tile([self.max_steering_angle, self.max_acceleration], N), np.tile([np.inf, np.inf, np.inf, np.inf], N+1)])
+
+        u0 = np.zeros((N, 2))
+        x0 = np.tile(current_state, (N+1, 1))
+
+        init_opt = np.concatenate([u0.flatten(), x0.flatten()])
+
+        sol = self.solver(
+            x0=init_opt,
+            lbx=lbx,
+            ubx=ubx,
+            lbg=lbg,
+            ubg=ubg,
+            p=c_p
         )
 
-        nlp.add_option('print_level', 0)
-        nlp.add_option('tol', 1e-6)
-        nlp.add_option('max_iter', 100)
+        u_opt = sol['x'].full().flatten()[:N*2].reshape(N, 2)
 
-        solution, info = nlp.solve(U0)
-
-        end_time = time.time()
-
-        print(f"Optimization time: {end_time - start_time:.4f} seconds")
-
-        if info['status'] == 0:
-            optimal_U = solution.reshape((N, 2))
-            steering_angle, acceleration = optimal_U[0]
-            return steering_angle, acceleration, optimal_U
-        else:
-            raise ValueError(f"Optimization failed: {info['status_msg']}")
+        return u_opt[0, 0], u_opt[0, 1]
 
 # Set up the simulation
 control_points = np.array([[0, 0], [50, 5], [100, 0]])
@@ -477,12 +505,11 @@ vehicle_mpc = Vehicle()
 trajectory_mpc = []
 
 current_state_mpc = np.array([0, 0, 0, target_speed])  # Initial state for MPC with target speed
-prev_U = None
 
 for step in range(num_steps):
     try:
         if step % 5 == 0:  # Reduce optimization frequency
-            control_angle_mpc, acc_control_mpc, prev_U = mpc_controller.optimize(path, current_state_mpc, prev_U)  # Use global path for MPC
+            control_angle_mpc, acc_control_mpc = mpc_controller.optimize(path, current_state_mpc)  # Use global path for MPC
         vehicle_mpc.update(acc_control_mpc, control_angle_mpc, dt)
         current_state_mpc = np.array([vehicle_mpc.x, vehicle_mpc.y, vehicle_mpc.theta, vehicle_mpc.v])
         trajectory_mpc.append(vehicle_mpc.get_pose())
@@ -500,3 +527,4 @@ plt.title('MPC Trajectory Following Path')
 plt.legend()
 plt.grid(True)
 plt.show()
+
