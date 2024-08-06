@@ -152,3 +152,14 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
+
+
+###
+#!/bin/bash
+
+while true; do
+  ros2 topic pub /fix sensor_msgs/NavSatFix "{header: {stamp: {sec: 0, nanosec: 0}, frame_id: 'gps'}, status: {status: 0, service: 1}, latitude: 37.7749, longitude: -122.4194, altitude: 10.0, position_covariance: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], position_covariance_type: 0}" -1
+  sleep 1
+done
+###
