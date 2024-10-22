@@ -46,6 +46,102 @@ class PurePursuitController:
         angle_to_lookahead = max(min(angle_to_lookahead, self.max_steering_angle), -self.max_steering_angle)    
         return angle_to_lookahead
 
+import numpy as np
+
+class StanleyController:
+    def __init__(self, k, max_steering_angle, vehicle_length):
+        self.k = k  # 控制增益，影响横向误差的作用
+        self.max_steering_angle = max_steering_angle
+        self.vehicle_length = vehicle_length
+
+    def calculate_control(self, mid_lane, vehicle_yaw, vehicle_pos):
+        # 车辆的当前位置
+        current_pos = vehicle_pos
+
+        # 计算横向误差，选择最近的点
+        nearest_point = None
+        min_distance = float('inf')
+        for x, y in mid_lane:
+            distance = np.sqrt((x - current_pos[0]) ** 2 + (y - current_pos[1]) ** 2)
+            if distance < min_distance:
+                min_distance = distance
+                nearest_point = (x, y)
+        
+        # 横向误差是当前车辆位置到路径的距离
+        lateral_error = min_distance
+        
+        # 计算路径点的航向角
+        dx = nearest_point[0] - current_pos[0]
+        dy = nearest_point[1] - current_pos[1]
+        path_yaw = np.arctan2(dy, dx)
+        
+        # 计算航向误差（路径的角度与车辆的角度差异）
+        yaw_error = path_yaw - vehicle_yaw
+        yaw_error = np.arctan2(np.sin(yaw_error), np.cos(yaw_error))  # 将角度标准化到[-pi, pi]
+
+        # Stanley控制器公式：转向角 = 航向误差 + arctan(k * 横向误差 / 速度)
+        # 这里假设速度恒定为 1 来简化
+        steering_angle = yaw_error + np.arctan2(self.k * lateral_error, 1)
+
+        # 限制转向角在最大范围内
+        steering_angle = max(min(steering_angle, self.max_steering_angle), -self.max_steering_angle)
+
+        return steering_angle
+
+from scipy.optimize import minimize
+import numpy as np
+
+class MPCController:
+    def __init__(self, horizon, dt, max_steering_angle, vehicle_length):
+        self.horizon = horizon  # 预测时域
+        self.dt = dt  # 时间步长
+        self.max_steering_angle = max_steering_angle
+        self.vehicle_length = vehicle_length
+
+    def vehicle_model(self, state, steering_angle, velocity):
+        # 状态为[x, y, yaw]
+        x, y, yaw = state
+        x_next = x + velocity * np.cos(yaw) * self.dt
+        y_next = y + velocity * np.sin(yaw) * self.dt
+        yaw_next = yaw + (velocity / self.vehicle_length) * np.tan(steering_angle) * self.dt
+        return np.array([x_next, y_next, yaw_next])
+
+    def calculate_control(self, mid_lane, vehicle_state):
+        # 目标是最小化预测状态和路径之间的误差
+        def objective(steering_sequence):
+            state = np.array(vehicle_state)  # [x, y, yaw]
+            total_error = 0
+
+            for i in range(self.horizon):
+                steering_angle = steering_sequence[i]
+                state = self.vehicle_model(state, steering_angle, 1)  # 假设速度恒定为1
+                nearest_point = min(mid_lane, key=lambda p: np.linalg.norm(np.array(p) - state[:2]))
+                error = np.linalg.norm(np.array(nearest_point) - state[:2])  # 横向误差
+                total_error += error
+
+            return total_error
+
+        # 初始转向角序列猜测
+        initial_guess = [0] * self.horizon
+
+        # 约束转向角的最大最小值
+        bounds = [(-self.max_steering_angle, self.max_steering_angle)] * self.horizon
+
+        # 使用最小化函数来求解最优转向角序列
+        result = minimize(objective, initial_guess, bounds=bounds)
+
+        # 返回第一个时间步的最优转向角
+        return result.x[0]
+
+# Example of usage
+vehicle_state = [0, 0, 0]  # 假设车辆的初始状态是 [x, y, yaw]
+mid_lane = [(5, 2), (10, 3), (15, 4)]  # 路径上的点
+
+mpc = MPCController(horizon=10, dt=0.1, max_steering_angle=np.pi/4, vehicle_length=2.5)
+steering_angle = mpc.calculate_control(mid_lane, vehicle_state)
+print(f'MPC Steering Angle: {steering_angle}')
+
+
 from scipy.optimize import minimize
 
 class MPCController:
