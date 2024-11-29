@@ -86,3 +86,80 @@ int main(int argc, char *argv[])
     rclcpp::shutdown();
     return 0;
 }
+
+
+cmake_minimum_required(VERSION 3.8)
+project(navsat_to_odometry)
+
+# Ensure you include the C++ standard version
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find required packages
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+
+# Add the executable
+add_executable(navsat_to_odom src/navsat_to_odom.cpp)
+
+# Link the required libraries
+ament_target_dependencies(
+  navsat_to_odom
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
+)
+
+# Install the executable
+install(TARGETS
+  navsat_to_odom
+  DESTINATION lib/${PROJECT_NAME})
+
+# Install other files if needed (e.g., launch files)
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+# Package export
+ament_package()
+
+
+<?xml version="1.0"?>
+<package format="2">
+  <name>navsat_to_odometry</name>
+  <version>0.1.0</version>
+  <description>Package to convert NavSatFix messages to Odometry messages</description>
+  <maintainer email="your_email@example.com">Your Name</maintainer>
+  <license>Apache 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Dependencies -->
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <!-- Optional testing dependencies -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+
+  <!-- Export the buildtool -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+
