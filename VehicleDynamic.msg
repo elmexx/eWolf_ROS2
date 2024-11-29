@@ -1,0 +1,10 @@
+float32 steering_angle
+float32 accelerate_y
+float32 yaw_rate
+float32 accelerate_x
+float32 yaw_accelerate
+float32 car_speed
+float32 wheel_speed_fl
+float32 wheel_speed_fr
+float32 wheel_speed_rl
+float32 wheel_speed_rr
