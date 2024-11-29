@@ -20,6 +20,9 @@ private:
         if (msg->data.size() == 10)
         {
             auto vehicle_msg = vehicle_dynamic_msg::msg::VehicleDynamic();
+            vehicle_msg.header.stamp = this->get_clock()->now();
+            vehicle_msg.header.frame_id = "base_link";
+            
             vehicle_msg.steering_angle = msg->data[0];
             vehicle_msg.accelerate_y = msg->data[1];
             vehicle_msg.yaw_rate = msg->data[2];
