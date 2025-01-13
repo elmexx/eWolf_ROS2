@@ -14,7 +14,6 @@ class LaneTransformerNode : public rclcpp::Node
 public:
     LaneTransformerNode() : Node("lane_transformer_node")
     {
-        // 初始化订阅和发布
         lane_markings_subscription_ = this->create_subscription<lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth>(
             "/lane_markings_projected", 10,
             std::bind(&LaneTransformerNode::laneMarkingsCallback, this, std::placeholders::_1));
@@ -25,7 +24,6 @@ public:
         path_publisher_ = this->create_publisher<nav_msgs::msg::Path>(
             "/reference_path", 10);
 
-        // 初始化 TF Buffer 和 Listener
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -35,7 +33,6 @@ public:
 private:
     void laneMarkingsCallback(const lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth::SharedPtr msg)
     {
-        // 获取 odom -> base_link 的变换
         geometry_msgs::msg::TransformStamped transform;
         try
         {
@@ -47,40 +44,40 @@ private:
             return;
         }
 
-        // 创建新的自定义车道线消息
         lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth transformed_msg;
         transformed_msg.header.stamp = this->get_clock()->now();
         transformed_msg.header.frame_id = "odom";
 
-        // 创建 Path 消息
         nav_msgs::msg::Path path_msg;
         path_msg.header = transformed_msg.header;
 
-        // 转换左边车道线并添加到 Path
-        for (const auto &point : msg->markings_left)
+        size_t left_size = msg->markings_left.size();
+        size_t right_size = msg->markings_right.size();
+        if (left_size != right_size)
         {
-            auto transformed_point = transformPoint(point, transform);
-            transformed_msg.markings_left.push_back(transformed_point);
+            RCLCPP_WARN(this->get_logger(), "Left and right lane markings have different sizes: %zu vs %zu", left_size, right_size);
+        }
+
+        size_t min_size = std::min(left_size, right_size);
+        for (size_t i = 0; i < min_size; ++i)
+        {
+            auto left_transformed = transformPoint(msg->markings_left[i], transform);
+            auto right_transformed = transformPoint(msg->markings_right[i], transform);
 
             geometry_msgs::msg::PoseStamped pose;
             pose.header = path_msg.header;
-            pose.pose.position.x = transformed_point.x;
-            pose.pose.position.y = transformed_point.y;
-            pose.pose.position.z = transformed_point.z;
-            pose.pose.orientation.w = 1.0; // 假设没有旋转
+            pose.pose.position.x = (left_transformed.x + right_transformed.x) / 2.0;
+            pose.pose.position.y = (left_transformed.y + right_transformed.y) / 2.0;
+            pose.pose.position.z = (left_transformed.z + right_transformed.z) / 2.0;
+            pose.pose.orientation.w = 1.0;
             path_msg.poses.push_back(pose);
+
+            transformed_msg.markings_left.push_back(left_transformed);
+            transformed_msg.markings_right.push_back(right_transformed);
         }
 
-        // 转换右边车道线并忽略 Path（仅保留左右车道线在 lane_parameter_msg 中）
-        for (const auto &point : msg->markings_right)
-        {
-            transformed_msg.markings_right.push_back(transformPoint(point, transform));
-        }
-
-        // 发布转换后的消息
         lane_markings_publisher_->publish(transformed_msg);
 
-        // 发布 Path 消息
         path_publisher_->publish(path_msg);
     }
 
@@ -88,7 +85,6 @@ private:
         const lane_parameter_msg::msg::LaneMarkingProjected &point,
         const geometry_msgs::msg::TransformStamped &transform)
     {
-        // 提取平移和旋转信息
         double tx = transform.transform.translation.x;
         double ty = transform.transform.translation.y;
         double tz = transform.transform.translation.z;
@@ -100,7 +96,6 @@ private:
             transform.transform.rotation.w);
         tf2::Matrix3x3 rotation_matrix(q);
 
-        // 应用变换
         lane_parameter_msg::msg::LaneMarkingProjected transformed_point;
         transformed_point.x = rotation_matrix[0][0] * point.x + rotation_matrix[0][1] * point.y +
                               rotation_matrix[0][2] * point.z + tx;
