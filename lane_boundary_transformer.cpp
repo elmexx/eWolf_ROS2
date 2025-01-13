@@ -1,4 +1,5 @@
 #include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_ros/buffer.h>
@@ -21,6 +22,9 @@ public:
         lane_markings_publisher_ = this->create_publisher<lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth>(
             "/lane_markings_in_odom", 10);
 
+        path_publisher_ = this->create_publisher<nav_msgs::msg::Path>(
+            "/reference_path", 10);
+
         // 初始化 TF Buffer 和 Listener
         tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
         tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -31,7 +35,7 @@ public:
 private:
     void laneMarkingsCallback(const lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth::SharedPtr msg)
     {
-        // 获取变换 odom -> base_link
+        // 获取 odom -> base_link 的变换
         geometry_msgs::msg::TransformStamped transform;
         try
         {
@@ -43,25 +47,41 @@ private:
             return;
         }
 
-        // 创建新的车道线消息
+        // 创建新的自定义车道线消息
         lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth transformed_msg;
         transformed_msg.header.stamp = this->get_clock()->now();
         transformed_msg.header.frame_id = "odom";
 
-        // 变换左边车道线
+        // 创建 Path 消息
+        nav_msgs::msg::Path path_msg;
+        path_msg.header = transformed_msg.header;
+
+        // 转换左边车道线并添加到 Path
         for (const auto &point : msg->markings_left)
         {
-            transformed_msg.markings_left.push_back(transformPoint(point, transform));
+            auto transformed_point = transformPoint(point, transform);
+            transformed_msg.markings_left.push_back(transformed_point);
+
+            geometry_msgs::msg::PoseStamped pose;
+            pose.header = path_msg.header;
+            pose.pose.position.x = transformed_point.x;
+            pose.pose.position.y = transformed_point.y;
+            pose.pose.position.z = transformed_point.z;
+            pose.pose.orientation.w = 1.0; // 假设没有旋转
+            path_msg.poses.push_back(pose);
         }
 
-        // 变换右边车道线
+        // 转换右边车道线并忽略 Path（仅保留左右车道线在 lane_parameter_msg 中）
         for (const auto &point : msg->markings_right)
         {
             transformed_msg.markings_right.push_back(transformPoint(point, transform));
         }
 
-        // 发布变换后的消息
+        // 发布转换后的消息
         lane_markings_publisher_->publish(transformed_msg);
+
+        // 发布 Path 消息
+        path_publisher_->publish(path_msg);
     }
 
     lane_parameter_msg::msg::LaneMarkingProjected transformPoint(
@@ -94,6 +114,7 @@ private:
 
     rclcpp::Subscription<lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth>::SharedPtr lane_markings_subscription_;
     rclcpp::Publisher<lane_parameter_msg::msg::LaneMarkingProjectedArrayBoth>::SharedPtr lane_markings_publisher_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_publisher_;
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
