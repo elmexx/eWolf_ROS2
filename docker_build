@@ -1,0 +1,179 @@
+太好了，我们现在来为你完整整理一个**ROS 2 Humble + CUDA 12.6 + cuDNN 9.3 + TensorRT 10.3 + PyTorch 2.1 的多用户可共享开发环境配置方案**，基于 Docker 技术，完全从头开始搭建，包括主机端准备、镜像构建、工作区组织、容器运行、权限管理等。
+
+---
+
+# ✅ 一站式安装与配置指南（含多用户支持）
+
+---
+
+## 🧩 **前提假设：**
+- 主机操作系统为：**Ubuntu 24.04**
+- 已安装 NVIDIA GPU 驱动（验证 `nvidia-smi` 正常工作）
+- 使用 Docker（非 Podman）
+- 所有开发人员都有独立系统账户
+
+---
+
+## ✅ 第一步：主机环境准备（只需做一次）
+
+### 1. 安装 Docker & NVIDIA Container Toolkit
+
+```bash
+# 安装 Docker
+sudo apt update
+sudo apt install -y docker.io
+
+# 启动 Docker 服务
+sudo systemctl enable --now docker
+
+# 安装 NVIDIA Container Toolkit
+sudo apt install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+### 2. 给所有用户添加 Docker 权限
+
+```bash
+sudo usermod -aG docker user1
+sudo usermod -aG docker user2
+```
+
+用户 **必须注销再登录** 才能生效。
+
+---
+
+## ✅ 第二步：创建共享 ROS 2 工作区目录（主机上）
+
+```bash
+sudo mkdir -p /opt/ros2_ws/src
+sudo chown root:docker /opt/ros2_ws
+sudo chmod -R 2775 /opt/ros2_ws
+```
+
+这样 `/opt/ros2_ws` 对所有 `docker` 用户组成员可读写共享，适合多个用户协作开发。
+
+---
+
+## ✅ 第三步：准备 TensorRT 安装包
+
+1. 下载地址：[NVIDIA TensorRT 官网](https://developer.nvidia.com/nvidia-tensorrt-download)
+2. 选择 Linux → x86_64 → `.tar.gz` 格式（例如 `TensorRT-10.3.0.2.Linux.x86_64-gnu.cuda-12.3.tar.gz`）
+3. 下载后放到和 `Dockerfile` 相同目录下
+
+---
+
+## ✅ 第四步：编写 Dockerfile
+
+将以下内容保存为 `Dockerfile`，与 TensorRT 安装包同目录：
+
+```dockerfile
+FROM nvidia/cuda:12.6.0-cudnn9-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+RUN apt update && apt install -y \
+    locales \
+    curl \
+    gnupg \
+    lsb-release \
+    sudo \
+    git \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    python3-argcomplete \
+    python3-vcstool \
+    build-essential \
+    cmake \
+    wget \
+    software-properties-common \
+    libssl-dev \
+    && locale-gen en_US en_US.UTF-8 && update-locale
+
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | apt-key add - && \
+    echo "deb http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list && \
+    apt update && apt install -y ros-humble-desktop
+
+RUN rosdep init && rosdep update
+
+RUN pip install --upgrade pip && \
+    pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+
+COPY TensorRT-10.3.0.2.Linux.x86_64-gnu.cuda-12.3.tar.gz /tmp/TensorRT.tar.gz
+RUN mkdir -p /opt/tensorrt && \
+    tar -xzf /tmp/TensorRT.tar.gz -C /opt/tensorrt --strip-components=1 && \
+    rm /tmp/TensorRT.tar.gz && \
+    cp /opt/tensorrt/include/* /usr/include/ && \
+    cp /opt/tensorrt/lib/* /usr/lib/ && \
+    ldconfig
+
+WORKDIR /ros2_ws
+
+CMD ["/bin/bash"]
+```
+
+---
+
+## ✅ 第五步：构建 Docker 镜像（在包含 Dockerfile 和 TensorRT 文件的目录中）
+
+```bash
+docker build -t ros2-humble-dev:cuda12-tensorrt10-pytorch2.1 .
+```
+
+构建过程会比较久（15–30分钟），取决于网络和硬盘。
+
+---
+
+## ✅ 第六步：每位开发者运行容器（建议使用用户脚本）
+
+你可以提供如下命令或脚本给每位用户：
+
+```bash
+docker run -it --gpus all --net=host \
+  --name ros2-dev-$(whoami) \
+  --user $(id -u):$(id -g) \
+  -v /opt/ros2_ws:/ros2_ws \
+  ros2-humble-dev:cuda12-tensorrt10-pytorch2.1
+```
+
+说明：
+- `--user` 保证容器中生成的文件属主是当前用户；
+- `--gpus all` 启用 GPU；
+- `--net=host` 让 ROS 节点通信不受容器网络隔离影响；
+- `-v /opt/ros2_ws:/ros2_ws` 映射共享工作区。
+
+---
+
+## ✅ 第七步：在容器内初始化并编译代码（只需做一次）
+
+```bash
+source /opt/ros/humble/setup.bash
+cd /ros2_ws
+mkdir -p src
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+```
+
+---
+
+## ✅ 附加建议
+
+| 功能 | 建议 |
+|------|------|
+| 图形调试工具（如 `rviz2`） | 添加 `-e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix` 启动容器时支持 |
+| VSCode 调试 | 使用 [Remote - Containers 插件](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) 打开容器开发 |
+| 多人代码管理 | 使用 Git 管理 `/opt/ros2_ws/src`，多人协作开发统一代码库 |
+| 多个容器互不干扰 | 每个用户起不同容器名 `--name ros2-dev-<username>` 即可 |
+
+---
+
+## ✅ 需要我为你附加提供：
+
+- [`run_ros2_dev.sh`] 自动启动并进入容器脚本？
+- [`docker-compose.yml`] 多节点协同容器？
+- [`devcontainer.json`] 直接 VSCode 打开容器项目调试？
+
+告诉我你更想要哪个，我可以下一步帮你生成！
