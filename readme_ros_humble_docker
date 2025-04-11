@@ -19,7 +19,7 @@ This guide describes how to set up and use a Docker-based ROS 2 Humble developme
 ## 1. Environment Overview
 
 - **Host OS**: Ubuntu 24.04  
-- **Docker Base Image**: `nvidia/cuda:11.8.0-runtime-ubuntu22.04`  
+- **Docker Base Image**: `nvidia/cuda:12.2.0-devel-ubuntu22.04`  
 - **ROS Version**: ROS 2 Humble  
 - **Graphics Support**: Enabled via host X11 forwarding  
 - **Users**: Configured to support multiple workstation users (e.g., `asbdy12`, `shdue24`)
