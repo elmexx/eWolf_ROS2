@@ -1,0 +1,193 @@
+# ROS 2 Humble Docker Environment on Ubuntu 24.04
+
+This guide describes how to set up and use a Docker-based ROS 2 Humble development environment on a workstation running Ubuntu 24.04. The environment is built on top of an NVIDIA CUDA Docker image with Ubuntu 22.04 and supports graphical interface forwarding to the host.
+
+---
+
+## Table of Contents
+
+1. [Environment Overview](#1-environment-overview)  
+2. [Installation and Setup](#2-installation-and-setup)  
+3. [How to Use](#3-how-to-use)  
+4. [Dockerfile](#4-dockerfile)  
+5. [Start Script](#5-start-script)  
+6. [Permissions and Multi-user Access](#6-permissions-and-multi-user-access)  
+7. [Notes](#7-notes)
+
+---
+
+## 1. Environment Overview
+
+- **Host OS**: Ubuntu 24.04  
+- **Docker Base Image**: `nvidia/cuda:11.8.0-runtime-ubuntu22.04`  
+- **ROS Version**: ROS 2 Humble  
+- **Graphics Support**: Enabled via host X11 forwarding  
+- **Users**: Configured to support multiple workstation users (e.g., `asbdy12`, `shdue24`)
+
+---
+
+## 2. Installation and Setup
+
+Make sure the following dependencies are installed on the host system:
+
+```bash
+sudo apt update
+sudo apt install docker.io docker-compose nvidia-container-toolkit
+```
+
+Add users to the `docker` group:
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+> Note: Replace `$USER` with the actual username if you're configuring for another user (e.g., `sudo usermod -aG docker asbdy12`).
+
+After adding the user to the Docker group, restart the system or log out and log in again to apply the group membership.
+
+---
+
+## 3. How to Use
+
+Each user can launch the ROS 2 Humble environment using the following shell script:
+
+### Launch the container
+
+```bash
+ros-humble-docker
+```
+
+This command will:
+
+- Start a container with GPU access
+- Mount the host's `~/ros_ws` directory
+- Enable X11 GUI forwarding
+
+Make sure the script described in [Start Script](#5-start-script) is placed in `/usr/local/bin` and is executable.
+
+---
+
+## 4. Dockerfile
+
+The following Dockerfile was used to create the image:
+
+```Dockerfile
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt update && apt install -y \
+    tzdata \
+    lsb-release \
+    gnupg2 \
+    curl \
+    wget \
+    git \
+    sudo \
+    python3-pip \
+    python3-colcon-common-extensions \
+    python3-rosdep \
+    locales && \
+    locale-gen en_US en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key | apt-key add - && \
+    echo "deb http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list && \
+    apt update && apt install -y ros-humble-desktop
+
+RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+```
+
+Build the image:
+
+```bash
+docker build -t ros-humble .
+```
+
+---
+
+## 5. Start Script
+
+The following script is saved as `/usr/local/bin/ros-humble-docker` and made executable:
+
+```bash
+#!/bin/bash
+
+xhost +local:root
+
+docker run -it --rm \
+    --gpus all \
+    --net=host \
+    --env="DISPLAY" \
+    --env="QT_X11_NO_MITSHM=1" \
+    --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+    --volume="$HOME/ros_ws:/root/ros_ws:rw" \
+    --name ros-humble-dev \
+    ros-humble \
+    bash
+
+xhost -local:root
+```
+
+Make the script executable:
+
+```bash
+sudo chmod +x /usr/local/bin/ros-humble-docker
+```
+
+---
+
+## 6. Permissions and Multi-user Access
+
+Ensure that all intended users (e.g., `asbdy12`, `shdue24`, etc.):
+
+- Are in the `docker` group:
+  ```bash
+  sudo usermod -aG docker username
+  ```
+
+- Have a workspace directory:
+  ```bash
+  mkdir -p ~/ros_ws/src
+  ```
+
+- Have X11 access enabled for Docker:
+  ```bash
+  xhost +local:root
+  ```
+
+You can add the `xhost` command to `.bashrc` if needed for persistent access.
+
+---
+
+## 7. Notes
+
+- This setup assumes all users have access to the host GPU and are working locally.
+- You may need to enable `nvidia-docker2` runtime in `/etc/docker/daemon.json`:
+
+```json
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  }
+}
+```
+
+Restart Docker:
+
+```bash
+sudo systemctl restart docker
+```
+
+- If graphical applications (e.g., `rviz2`) fail, check if `$DISPLAY` and `/tmp/.X11-unix` are correctly mounted.
+
+---
+
+## License
+
+This setup is provided under an open-source license. You are free to adapt and redistribute it within your institution or team.
