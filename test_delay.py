@@ -113,3 +113,33 @@ if __name__ == '__main__':
 import time
 current_time = time.time()
 combined_array = np.concatenate((udp_data, [current_time]), axis=0).astype(np.float64)
+
+
+
+import torch
+
+# 检查 CUDA 是否可用
+if not torch.cuda.is_available():
+    print("CUDA 不可用。")
+    exit()
+
+device = torch.device("cuda")
+tensors = []
+
+# 获取总显存容量
+total_memory = torch.cuda.get_device_properties(device).total_memory
+limit = int(total_memory * 0.95)
+
+print(f"总显存: {total_memory / 1024 / 1024:.2f} MB")
+print(f"设置的上限 (95%): {limit / 1024 / 1024:.2f} MB")
+
+try:
+    while torch.cuda.memory_allocated(device) < limit:
+        tensor = torch.randn((1024, 1024, 64), device=device)  # 大约 256MB
+        tensors.append(tensor)
+        allocated = torch.cuda.memory_allocated(device)
+        print(f"当前显存占用: {allocated / 1024 / 1024:.2f} MB")
+    print("已达到设定的显存上限。")
+except RuntimeError as e:
+    print("发生异常：", e)
+
