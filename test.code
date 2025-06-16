@@ -52,3 +52,254 @@ echo "source ~/ros_ws/devel/setup.bash" >> ~/.bashrc
 
 docker start -ai ros2-dev
 docker commit ros2-dev ros2-dev-checkpoint:v1
+
+
+很好，基于你主机的用户信息：
+
+* 用户名：`fmon005`
+* UID：`1000`
+* GID：`1000`
+
+我为你生成了一个**长期开发用的 ROS 2 Humble Docker 镜像 Dockerfile**，它：
+
+* ✅ 基于 `osrf/ros:humble-desktop-full`
+* ✅ 创建 `fmon005` 用户（UID/GID 与宿主一致）
+* ✅ 配置 GUI 支持（`rviz`、`rqt`）
+* ✅ 默认使用该用户进入容器，避免 root 权限污染主机文件
+* ✅ 适合长期开发，可 `apt install` 软件后持久使用（容器不加 `--rm`）
+
+---
+
+## ✅ 步骤一：准备 Dockerfile（ROS 2）
+
+保存为：`~/docker_ros_env/Dockerfile_ros2`
+
+```dockerfile
+FROM osrf/ros:humble-desktop-full
+
+# 添加非 root 用户，与宿主一致（用户名、UID、GID）
+ARG USERNAME=fmon005
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN groupadd -g ${USER_GID} ${USERNAME} && \
+    useradd -m -u ${USER_UID} -g ${USER_GID} -s /bin/bash ${USERNAME} && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# 设置默认用户和工作目录
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}
+
+# 保证 source ROS 环境
+RUN echo "source /opt/ros/humble/setup.bash" >> /home/${USERNAME}/.bashrc
+
+# GUI 支持变量
+ENV QT_X11_NO_MITSHM=1
+```
+
+---
+
+## ✅ 步骤二：构建自定义镜像
+
+在 `~/docker_ros_env/` 下执行：
+
+```bash
+docker build -f Dockerfile_ros2 -t ros2-dev-user .
+```
+
+---
+
+## ✅ 步骤三：更新 run 脚本（`run_ros2.sh`）
+
+保存为：`~/docker_ros_env/run_ros2.sh`
+
+```bash
+#!/bin/bash
+
+CONTAINER_NAME="ros2-dev"
+IMAGE_NAME="ros2-dev-user"
+
+docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+
+if [ $? -eq 0 ]; then
+    echo "Starting existing container '${CONTAINER_NAME}'..."
+    docker start -ai ${CONTAINER_NAME}
+else
+    echo "Creating new container '${CONTAINER_NAME}'..."
+    docker run -it \
+        --name ${CONTAINER_NAME} \
+        -e DISPLAY=$DISPLAY \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v ~/ros2_ws:/home/fmon005/ros2_ws \
+        ${IMAGE_NAME} \
+        bash
+fi
+```
+
+---
+
+## ✅ 赋予执行权限
+
+```bash
+chmod +x ~/docker_ros_env/run_ros2.sh
+```
+
+---
+
+## ✅ 现在你可以这样开发：
+
+1. 启动开发容器：
+
+   ```bash
+   ~/docker_ros_env/run_ros2.sh
+   ```
+
+2. 在容器中继续开发（如平时一样）：
+
+   ```bash
+   cd ~/ros2_ws
+   colcon build
+   ros2 run ...
+   ```
+
+3. 安装包（如有需要）：
+
+   ```bash
+   sudo apt update
+   sudo apt install ros-humble-navigation2
+   ```
+
+这些变更都会在容器中保留。
+
+---
+
+如果你也希望我生成 ROS 1 的版本（Noetic）— `Dockerfile_ros1` + `run_ros1.sh` — 也可以告诉我，我可以帮你对称配置。需要吗？
+
+
+
+好的，以下是与你当前主机一致的 **ROS 1 Noetic Docker 开发环境配置**，包含：
+
+* ✅ Dockerfile（基于 `osrf/ros:noetic-desktop-full`）
+* ✅ 创建用户 `fmon005`，UID/GID = 1000
+* ✅ 支持 `rviz`、GUI
+* ✅ 自动 `source` ROS 环境
+* ✅ 配套 `run_ros1.sh` 启动脚本，支持首次创建和后续启动
+* ✅ 宿主目录 `~/ros_ws` 挂载到容器内 `/home/fmon005/ros_ws`，适合长期开发
+
+---
+
+## 📄 步骤一：保存 Dockerfile（ROS 1）
+
+路径：`~/docker_ros_env/Dockerfile_ros1`
+
+```dockerfile
+FROM osrf/ros:noetic-desktop-full
+
+ARG USERNAME=fmon005
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+# 创建用户并配置 sudo 权限
+RUN groupadd -g ${USER_GID} ${USERNAME} && \
+    useradd -m -u ${USER_UID} -g ${USER_GID} -s /bin/bash ${USERNAME} && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}
+
+# 默认加载 ROS 环境
+RUN echo "source /opt/ros/noetic/setup.bash" >> /home/${USERNAME}/.bashrc
+
+ENV QT_X11_NO_MITSHM=1
+```
+
+---
+
+## 🛠 步骤二：构建镜像
+
+在 `~/docker_ros_env` 中运行：
+
+```bash
+docker build -f Dockerfile_ros1 -t ros1-dev-user .
+```
+
+---
+
+## 🚀 步骤三：保存启动脚本 `run_ros1.sh`
+
+路径：`~/docker_ros_env/run_ros1.sh`
+
+```bash
+#!/bin/bash
+
+CONTAINER_NAME="ros1-dev"
+IMAGE_NAME="ros1-dev-user"
+
+docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"
+
+if [ $? -eq 0 ]; then
+    echo "Starting existing container '${CONTAINER_NAME}'..."
+    docker start -ai ${CONTAINER_NAME}
+else
+    echo "Creating new container '${CONTAINER_NAME}'..."
+    docker run -it \
+        --name ${CONTAINER_NAME} \
+        -e DISPLAY=$DISPLAY \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v ~/ros_ws:/home/fmon005/ros_ws \
+        ${IMAGE_NAME} \
+        bash
+fi
+```
+
+---
+
+## ✅ 步骤四：赋予执行权限
+
+```bash
+chmod +x ~/docker_ros_env/run_ros1.sh
+```
+
+---
+
+## 🧪 使用方式
+
+* 启动 ROS 1 开发容器：
+
+  ```bash
+  ~/docker_ros_env/run_ros1.sh
+  ```
+
+* 在容器中进行 ROS 1 开发：
+
+  ```bash
+  cd ~/ros_ws
+  catkin_make
+  rosrun ...
+  ```
+
+* 安装新包（长期有效）：
+
+  ```bash
+  sudo apt install ros-noetic-navigation
+  ```
+
+---
+
+## ✅ 最终结果
+
+你现在拥有两个独立、持久、安全的开发环境：
+
+| 开发环境  | 启动脚本          | 镜像名             | 用户        | 挂载路径                                  |
+| ----- | ------------- | --------------- | --------- | ------------------------------------- |
+| ROS 1 | `run_ros1.sh` | `ros1-dev-user` | `fmon005` | `~/ros_ws` → `/home/fmon005/ros_ws`   |
+| ROS 2 | `run_ros2.sh` | `ros2-dev-user` | `fmon005` | `~/ros2_ws` → `/home/fmon005/ros2_ws` |
+
+如果你以后还想添加：
+
+* 多容器通信（bridge/network host）
+* ROS + VSCode devcontainer
+* 数据集或设备挂载（如 bag 文件、USB 相机）
+
+也可以告诉我，我可以继续帮你扩展这套体系。
+
