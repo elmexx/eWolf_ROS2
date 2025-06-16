@@ -1,0 +1,54 @@
+#!/bin/bash
+CONTAINER_NAME="ros2-dev"
+IMAGE_NAME="osrf/ros:humble-desktop-full"
+
+# Check if container exists
+if [ "$(docker ps -a -q -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "Starting existing ROS 2 container..."
+    docker start -ai ${CONTAINER_NAME}
+else
+    echo "Creating new ROS 2 container..."
+    docker run -it \
+        --name ${CONTAINER_NAME} \
+        -e DISPLAY=$DISPLAY \
+        -e QT_X11_NO_MITSHM=1 \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v ~/ros2_ws:/root/ros2_ws \
+        ${IMAGE_NAME} \
+        bash
+fi
+
+
+#!/bin/bash
+CONTAINER_NAME="ros1-dev"
+IMAGE_NAME="osrf/ros:noetic-desktop-full"
+
+# Check if container exists
+if [ "$(docker ps -a -q -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "Starting existing ROS 1 container..."
+    docker start -ai ${CONTAINER_NAME}
+else
+    echo "Creating new ROS 1 container..."
+    docker run -it \
+        --name ${CONTAINER_NAME} \
+        -e DISPLAY=$DISPLAY \
+        -e QT_X11_NO_MITSHM=1 \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v ~/ros_ws:/root/ros_ws \
+        ${IMAGE_NAME} \
+        bash
+fi
+
+
+chmod +x ~/docker_ros_env/run_ros1.sh
+chmod +x ~/docker_ros_env/run_ros2.sh
+
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+echo "source ~/ros2_ws/install/setup.bash" >> ~/.bashrc
+
+echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+echo "source ~/ros_ws/devel/setup.bash" >> ~/.bashrc
+
+
+docker start -ai ros2-dev
+docker commit ros2-dev ros2-dev-checkpoint:v1
