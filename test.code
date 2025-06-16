@@ -303,3 +303,65 @@ chmod +x ~/docker_ros_env/run_ros1.sh
 
 也可以告诉我，我可以继续帮你扩展这套体系。
 
+
+#!/bin/bash
+
+CONTAINER_NAME="ros1-dev"
+IMAGE_NAME="ros1-dev-user"
+
+# 检查容器是否正在运行
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Container '${CONTAINER_NAME}' is already running."
+    echo "Opening a new terminal in the running container..."
+    docker exec -it ${CONTAINER_NAME} bash
+    exit 0
+fi
+
+# 如果容器存在但未运行，则启动并 attach
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Starting existing container '${CONTAINER_NAME}'..."
+    docker start -ai ${CONTAINER_NAME}
+    exit 0
+fi
+
+# 否则新建容器
+echo "Creating and starting new container '${CONTAINER_NAME}'..."
+docker run -it \
+    --name ${CONTAINER_NAME} \
+    -e DISPLAY=$DISPLAY \
+    -e QT_X11_NO_MITSHM=1 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v ~/ros_ws:/home/fmon005/ros_ws \
+    ${IMAGE_NAME} \
+    bash
+
+#!/bin/bash
+
+CONTAINER_NAME="ros2-dev"
+IMAGE_NAME="ros2-dev-user"
+
+# 检查容器是否正在运行
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Container '${CONTAINER_NAME}' is already running."
+    echo "Opening a new terminal in the running container..."
+    docker exec -it ${CONTAINER_NAME} bash
+    exit 0
+fi
+
+# 如果容器存在但未运行，则启动并 attach
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Starting existing container '${CONTAINER_NAME}'..."
+    docker start -ai ${CONTAINER_NAME}
+    exit 0
+fi
+
+# 否则新建容器
+echo "Creating and starting new container '${CONTAINER_NAME}'..."
+docker run -it \
+    --name ${CONTAINER_NAME} \
+    -e DISPLAY=$DISPLAY \
+    -e QT_X11_NO_MITSHM=1 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v ~/ros2_ws:/home/fmon005/ros2_ws \
+    ${IMAGE_NAME} \
+    bash
