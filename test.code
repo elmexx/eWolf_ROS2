@@ -365,3 +365,87 @@ docker run -it \
     -v ~/ros2_ws:/home/fmon005/ros2_ws \
     ${IMAGE_NAME} \
     bash
+
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, PointCloud2
+from cv_bridge import CvBridge
+import cv2
+import sensor_msgs_py.point_cloud2 as pc2
+import numpy as np
+import open3d as o3d
+from pynput import keyboard
+import os
+
+class ImagePointcloudSaver(Node):
+    def __init__(self):
+        super().__init__('image_pcd_saver')
+
+        # 参数
+        self.declare_parameter('image_topic', '/camera/color/image_raw')
+        self.declare_parameter('pointcloud_topic', '/scala_decoder_sdk_point_2')
+
+        image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
+        pc_topic = self.get_parameter('pointcloud_topic').get_parameter_value().string_value
+
+        self.get_logger().info(f"Subscribed to: {image_topic} & {pc_topic}")
+
+        # 数据缓存
+        self.bridge = CvBridge()
+        self.latest_image = None
+        self.latest_pc = None
+        self.count = 0
+
+        # 订阅
+        self.create_subscription(Image, image_topic, self.image_callback, 10)
+        self.create_subscription(PointCloud2, pc_topic, self.pc_callback, 10)
+
+        # 启动键盘监听线程
+        listener = keyboard.Listener(on_press=self.on_key_press)
+        listener.start()
+
+    def image_callback(self, msg):
+        self.latest_image = msg
+
+    def pc_callback(self, msg):
+        self.latest_pc = msg
+
+    def on_key_press(self, key):
+        if key == keyboard.Key.space:
+            if self.latest_image and self.latest_pc:
+                self.save_data()
+            else:
+                self.get_logger().warn("数据尚未准备好")
+
+    def save_data(self):
+        # 图像保存
+        cv_image = self.bridge.imgmsg_to_cv2(self.latest_image, desired_encoding='bgr8')
+        image_filename = f'image_{self.count:04d}.jpg'
+        cv2.imwrite(image_filename, cv_image)
+
+        # 点云保存
+        points = np.array([
+            [p[0], p[1], p[2]]
+            for p in pc2.read_points(self.latest_pc, field_names=("x", "y", "z"), skip_nans=True)
+        ], dtype=np.float32)
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd_filename = f'cloud_{self.count:04d}.pcd'
+        o3d.io.write_point_cloud(pcd_filename, pcd)
+
+        self.get_logger().info(f"Saved image as {image_filename} and pointcloud as {pcd_filename}")
+        self.count += 1
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ImagePointcloudSaver()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
